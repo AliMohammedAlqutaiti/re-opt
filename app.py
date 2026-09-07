@@ -8,7 +8,7 @@ from google import genai
 st.set_page_config(page_title="RE-OPT: Enterprise Robotic Digital Twin", layout="wide")
 
 st.title("⚡ RE-OPT: Enterprise Digital Twin - Manah Robotic Solar Fleet")
-st.markdown("منصة التوأم الرقمي المؤسسي - نموذج أسطول الروبوتات الجافة (Dry-Cleaning Robots) على غرار مشاريع منح الكبرى.")
+st.markdown("منصة التوأم الرقمي المؤسسي - نظام الإدارة المتقدم لأسطول الروبوتات والكتل الكهربائية.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather():
@@ -43,7 +43,6 @@ tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (
 st.sidebar.subheader("اقتصاديات أسطول الروبوتات الآلية (Robotic O&M)")
 robot_fleet_size = st.sidebar.number_input("عدد روبوتات التنظيف الجاف النشطة", min_value=100, max_value=5000, value=1200, step=100)
 daily_robot_depreciation = st.sidebar.number_input("التكلفة اليومية لإهلاك وصيانة الروبوتات (ر.ع / يوم)", min_value=5.0, max_value=200.0, value=35.0, step=5.0)
-days_since_robot_sweep = st.sidebar.slider("دورات التشغيل الجاف بدون مسح كامل (أيام)", min_value=1, max_value=30, value=5, step=1)
 
 st.sidebar.subheader("التحكم المستقل لكتل المحولات (Inverter Blocks)")
 inverter_configs = {}
@@ -77,6 +76,9 @@ def run_robotic_simulation(total_cap, n_inv, configs, alb, t_amb, wind):
     block_capacity = total_cap / n_inv
     
     simulation_results = {}
+    total_ideal = np.zeros(len(times))
+    total_actual = np.zeros(len(times))
+    
     for i in range(n_inv):
         inv_name = f"Inverter Block {i+1}"
         cfg = configs[inv_name]
@@ -94,48 +96,66 @@ def run_robotic_simulation(total_cap, n_inv, configs, alb, t_amb, wind):
             'الواقع التشغيلي (أسطول الروبوتات)': actual_power
         }, index=times)
         
+        total_ideal += ideal_power
+        total_actual += actual_power
+
+    simulation_results['Plant_Total'] = pd.DataFrame({
+        'التوأم الرقمي للمحطة (المثالي)': total_ideal,
+        'الواقع التشغيلي للإجمالي': total_actual
+    }, index=times)
+    
     return simulation_results
 
 inverter_data = run_robotic_simulation(total_capacity, num_inverters, inverter_configs, albedo, live_temp, live_wind)
 
-total_plant_loss_kwh = 0
-for inv_name, df_block in inverter_data.items():
-    block_loss = (df_block['التوأم الرقمي (المرجع المثالي)'] - df_block['الواقع التشغيلي (أسطول الروبوتات - مسقط)']).sum() if 'الواقع التشغيلي (أسطول الروبوتات - مسقط)' in df_block.columns else (df_block['التوأم الرقمي (المرجع المثالي)'] - df_block['الواقع التشغيلي (أسطول الروبوتات)']).sum()
-    total_plant_loss_kwh += block_loss
-
+df_total = inverter_data['Plant_Total']
+total_plant_loss_kwh = (df_total['التوأم الرقمي للمحطة (المثالي)'] - df_total['الواقع التشغيلي للإجمالي']).sum()
 daily_financial_loss = total_plant_loss_kwh * tariff
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
-st.subheader("🤖 مؤشرات كفاءة أسطول الروبوتات الجافة (Manah-Scale Model)")
-col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-col_r1.metric("تكلفة المياه والعمالة اليدوية", "0.00 ر.ع (100% روبوتات)")
-col_r2.metric("إجمالي الفقد اليومي للطاقة", f"{total_plant_loss_kwh:,.1f} kWh")
-col_r3.metric("تكلفة إهلاك الروبوتات اليومية", f"{daily_robot_depreciation:.2f} ر.ع")
-col_r4.metric("صافي العائد الاقتصادي اليومي", f"{net_robotic_roi:,.2f} ر.ع")
+# تقسيم الواجهة إلى تبويبين أساسيين (Tabs)
+tab1, tab2 = st.tabs(["📈 التوأم الرقمي العام للمحطة", "🔌 تحليل المحولات والكتل المستقلة"])
 
-if net_robotic_roi > 0:
-    st.success(f"✅ **الجدوى التشغيلية ممتازة:** قيمة الطاقة الموفرة عبر الروبوتات تتجاوز تكلفة إهلاك الأسطول بقيمة صافية **{net_robotic_roi:,.2f} ر.ع يومياً**. النظام يعمل بأعلى كفاءة استثمارية.")
-else:
-    st.warning(f"⚠️ **تنبيه إهلاك الأسطول:** تكلفة تشغيل الروبوتات تفوق الخسارة الحالية. يُوصى بجدولة دورات مسح أطول للروبوتات لتقليل الاستهلاك.")
+with tab1:
+    st.subheader("📈 الرسم البياني العام للتوأم الرقمي والإنتاج الكلي")
+    
+    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+    col_r1.metric("تكلفة المياه والعمالة اليدوية", "0.00 ر.ع (100% روبوتات)")
+    col_r2.metric("إجمالي الفقد اليومي للطاقة", f"{total_plant_loss_kwh:,.1f} kWh")
+    col_r3.metric("تكلفة إهلاك الروبوتات اليومية", f"{daily_robot_depreciation:.2f} ر.ع")
+    col_r4.metric("صافي العائد الاقتصادي اليومي", f"{net_robotic_roi:,.2f} ر.ع")
 
-st.markdown("---")
-st.subheader("📊 أداء الكتل الكهربائية مع تشغيل الأسطول الروبوتي")
+    if net_robotic_roi > 0:
+        st.success(f"✅ **الجدوى التشغيلية ممتازة:** قيمة الطاقة الموفرة عبر الروبوتات تتجاوز تكلفة إهلاك الأسطول بقيمة صافية **{net_robotic_roi:,.2f} ر.ع يومياً**.")
+    else:
+        st.warning(f"⚠️ **تنبيه إهلاك الأسطول:** تكلفة تشغيل الروبوتات تفوق الخسارة الحالية.")
 
-for inv_name, df_block in inverter_data.items():
-    st.markdown(f"**🔹 تحليلات أداء {inv_name}**")
-    
-    ideal_sum = df_block['التوأم الرقمي (المرجع المثالي)'].sum()
-    actual_sum = df_block['الواقع التشغيلي (أسطول الروبوتات)'].sum()
-    block_loss = ideal_sum - actual_sum
-    block_financial_loss = block_loss * tariff
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric(f"فقد الطاقة ({inv_name})", f"{block_loss:,.1f} kWh")
-    col2.metric(f"الخسارة المالية ({inv_name})", f"{block_financial_loss:,.3f} ر.ع")
-    col3.metric(f"إعدادات الروبوت/الغبار", f"تراكم: {inverter_configs[inv_name]['soiling']}%")
-    
-    st.line_chart(df_block)
     st.markdown("---")
+    st.markdown("**مقارنة الإنتاج الكلي للمحطة (التوأم الرقمي المثالي مقابل الواقع التشغيلي لأسطول الروبوتات)**")
+    st.line_chart(df_total)
+
+with tab2:
+    st.subheader("🔌 التحليل المستقل لكتل المحولات (Inverter Blocks)")
+    st.markdown("استعرض أداء كل محول على حدة مع منحنى التوأم الرقمي والتشغيلي المخصص له بناءً على إعداداتك الجانبية.")
+
+    for inv_name, df_block in inverter_data.items():
+        if inv_name == 'Plant_Total':
+            continue
+            
+        st.markdown(f"**🔹 مسار أداء وتحليلات {inv_name}**")
+        
+        ideal_sum = df_block['التوأم الرقمي (المرجع المثالي)'].sum()
+        actual_sum = df_block['الواقع التشغيلي (أسطول الروبوتات)'].sum()
+        block_loss = ideal_sum - actual_sum
+        block_financial_loss = block_loss * tariff
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"فقد الطاقة ({inv_name})", f"{block_loss:,.1f} kWh")
+        c2.metric(f"الخسارة المالية ({inv_name})", f"{block_financial_loss:,.3f} ر.ع")
+        c3.metric(f"إعدادات الغبار/الميل", f"غبار: {inverter_configs[inv_name]['soiling']}% | ميل: {inverter_configs[inv_name]['tilt_error']}°")
+        
+        st.line_chart(df_block)
+        st.markdown("---")
 
 st.subheader("🤖 تقرير تحليل الأداء المؤسسي لأسطول الروبوتات (Gemini 3.6)")
 
