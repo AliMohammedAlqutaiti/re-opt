@@ -2,3 +2,4 @@ streamlit
 pvlib
 pandas
 numpy
+openai
