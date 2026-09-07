@@ -62,7 +62,7 @@ else:
         with st.spinner("الوكيل الذكي (Gemini) يقوم بتحليل بيانات التوأم الرقمي..."):
             try:
                 genai.configure(api_key=gemini_api_key)
-                model = genai.GenerativeModel('gemini-2.5-flash')
+                model = genai.GenerativeModel('gemini-1.5-pro')
                 
                 prompt = f"""
                 أنت وكيل ذكاء اصطناعي خبير في تشخيص محطات الطاقة الشمسية.
