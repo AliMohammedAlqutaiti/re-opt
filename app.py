@@ -9,7 +9,7 @@ from google import genai
 st.set_page_config(page_title="RE-OPT: Ultimate Enterprise Digital Twin", layout="wide")
 
 st.title("⚡ RE-OPT: Ultimate Manah Enterprise Digital Twin & O&M Platform")
-st.markdown("منصة التوأم الرقمي المؤسسي الشاملة - LCOE، أوامر الشغل الآلية، طوارئ العواصف الرملية، أسطول الروبوتات، وتشخيص FDD.")
+st.markdown("منصة التوأم الرقمي المؤسسي الشاملة - LCOE، أسراب الروبوتات الجافة، طوارئ العواصف، والتحليل المالي.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather():
@@ -49,18 +49,18 @@ st.sidebar.subheader("طوارئ البيئة الصحراوية (Dust Storm Sim
 dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة (Dust Storm Event)", value=False)
 storm_soiling_penalty = st.sidebar.slider("معامل الفقد الإضافي للعاصفة (%)", min_value=5.0, max_value=40.0, value=15.0, step=2.5) if dust_storm_active else 0.0
 
-st.sidebar.subheader("تكنولوجيا الألواح واقتصاديات LCOE")
+st.sidebar.subheader("تكنولوجيا الألواح واقتصاديات المحطة")
 technology_type = st.sidebar.selectbox("نوع ألواح المحطة الرئيسية", ["ثنائية الوجه (Bifacial)", "أحادية الوجه (Mono-facial)", "هجين (مزيج بين النوعين)"])
 albedo = st.sidebar.slider("معامل الانعكاس الأرضي (Albedo)", min_value=0.1, max_value=0.8, value=0.40, step=0.05)
 bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه للألواح (%)", min_value=60.0, max_value=85.0, value=70.0, step=5.0) / 100.0
 
 tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
 
-# إدارة أسطول الروبوتات والـ CAPEX
-st.sidebar.subheader("إدارة أسطول الروبوتات الجافة (1,800 Robot Fleet)")
+# إدارة أسطول الروبوتات والـ CAPEX (تمت مركزتها هنا لتظهر في لوحة الاقتصاديات)
+st.sidebar.subheader("اقتصاديات أسطول الروبوتات الجافة (Robot Fleet Economics)")
 total_robots = st.sidebar.number_input("إجمالي الروبوتات النشطة", min_value=500, max_value=3000, value=1800, step=100)
-initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي لأسطول الروبوتات ($ / OMR)", min_value=500000.0, max_value=3000000.0, value=1200000.0, step=50000.0)
-daily_robot_depreciation = st.sidebar.number_input("إهلاك الصيانة اليومي للأسطول (ر.ع)", min_value=10.0, max_value=300.0, value=45.0, step=5.0)
+initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي لأسطول الروبوتات (ر.ع)", min_value=500000.0, max_value=3000000.0, value=1200000.0, step=50000.0)
+daily_robot_depreciation = st.sidebar.number_input("إهلاك وصيانة الروبوتات اليومي (ر.ع)", min_value=10.0, max_value=300.0, value=45.0, step=5.0)
 
 st.sidebar.subheader("التحكم المستقل لكتل المحولات (Inverter Blocks)")
 inverter_configs = {}
@@ -151,10 +151,10 @@ net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
 # حسابات LCOE الاقتصادية لـ 25 عاماً
 annual_generation_mwh = (df_total['إجمالي قياسات سكادا الفعلية'].sum() * 365) / 1000.0
-plant_capex = total_capacity_mw * 350000.0 # تقدير تكلفة المحطة بالرال أو الدولار
+plant_capex = total_capacity_mw * 350000.0 
 total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciation * 365 * 25)
 total_lifetime_generation_mwh = annual_generation_mwh * 25
-lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000) # لكل kWh
+lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي والتقييم", 
@@ -172,8 +172,8 @@ with tab1:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
     c2.metric("حجم الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
-    c3.metric("تكلفة إهلاك الروبوتات", f"{daily_robot_depreciation:.2f} ر.ع")
-    c4.metric("صافي العائد الاقتصادي", f"{net_robotic_roi:,.2f} ر.ع")
+    c3.metric("تعرفة الكهرباء", f"{tariff:.3f} ر.ع / kWh")
+    c4.metric("حالة النظام البيئي", "عاصفة نشطة" if dust_storm_active else "مستقر آلياً")
 
     st.markdown("---")
     st.line_chart(df_total)
@@ -213,7 +213,7 @@ with tab3:
     r_col1, r_col2, r_col3 = st.columns(3)
     r_col1.metric("الروبوتات النشطة في الميدان", f"{total_robots} روبوت")
     r_col2.metric("استجابة طوارئ العواصف", "⚡ تفعيل المسح الفوري السريع" if dust_storm_active else "🛡️ الوضع الدوري العادي")
-    r_col3.metric("استهلاك المياه", "0.0 لتر (تنظيف جاف تماماً)")
+    r_col3.metric("استهلاك المياه للغسيل", "0.0 لتر (100% تنظيف جاف)")
 
     st.markdown("### 🗺️ توزيع الروبوتات وحالة الكتل التشغيلية")
     zone_data = []
@@ -231,22 +231,36 @@ with tab3:
     st.table(pd.DataFrame(zone_data))
 
 with tab4:
-    st.subheader("💰 التحليل المالي بعيد المدى ونموذج LCOE (25-Year Horizon)")
-    f_col1, f_col2, f_col3 = st.columns(3)
-    f_col1.metric("تكلفة الطاقة المستوية (LCOE)", f"{lcoe:.4f} ر.ع / kWh")
-    f_col2.metric("الإنتاج السنوي التقديري للمحطة", f"{annual_generation_mwh:,.1f} MWh")
-    f_col3.metric("استثمار أسطول الروبوتات (CAPEX)", f"{initial_robot_capex:,.0f} ر.ع")
+    st.subheader("💰 التحليل المالي بعيد المدى واقتصاديات أسطول الروبوتات (LCOE & Robot CAPEX)")
+    
+    # مؤشرات اقتصاديات الروبوتات المالية الصافية هنا
+    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+    f_col1.metric("استثمار أسطول الروبوتات (CAPEX)", f"{initial_robot_capex:,.0f} ر.ع")
+    f_col2.metric("إهلاك وصيانة الأسطول اليومي", f"{daily_robot_depreciation:.2f} ر.ع")
+    f_col3.metric("صافي العائد الاقتصادي اليومي", f"{net_robotic_roi:,.2f} ر.ع")
+    f_col4.metric("تكلفة الطاقة المستوية (LCOE)", f"{lcoe:.4f} ر.ع / kWh")
 
-    st.markdown("""
-    **الجدوى الاقتصادية لتبني الروبوتات الجافة:**
-    * مقارنة بالعمالة اليدوية التي تتطلب ملايين اللترات من المياه وتكاليف عمالة باهظة في الصحراء العمانية، فإن إهلاك أسطول الروبوتات الجافة يوفر عائداً استثمارياً (ROI) يتم تحقيقه بالكامل خلال أول 12 إلى 18 تشغيلاً رئيسياً عبر منع خسائر كفاءة الألواح.
-    """)
+    st.markdown("---")
+    
+    col_fin1, col_fin2 = st.columns(2)
+    with col_fin1:
+        st.markdown("#### 📊 مقارنة التكاليف التشغيلية (روبوتات جافة مقابل غسيل تقليدي)")
+        st.write("- **تكلفة المياه والعمالة اليدوية:** 0.00 ر.ع (محظورة بيئياً واقتصادياً في صحراء عمان لتطلبها ملايين اللترات).")
+        st.write(f"- **إجمالي تكلفة تشغيل الروبوتات السنوية:** {(daily_robot_depreciation * 365):,.2f} ر.ع.")
+        st.write(f"- **الإنتاج السنوي التقديري للمحطة:** {annual_generation_mwh:,.1f} MWh.")
+        
+    with col_fin2:
+        st.markdown("#### 💡 العائد الاستثماري الاستراتيجي (ROI)")
+        if net_robotic_roi > 0:
+            st.success(f"✅ أسطول الروبوتات يحقق قيمة مضافة صافية قدرها **{net_robotic_roi:,.2f} ر.ع يومياً** عبر حماية الألواح من فقد كفاءة الإنتاج الصحراوي.")
+        else:
+            st.warning("⚠️ إهلاك الروبوتات يتجاوز الخسارة الحالية؛ يُوصى بتعديل دورات المسح.")
 
 with tab5:
     st.subheader("📋 توليد أوامر الشغل الآلية (Automated Work Orders)")
     st.markdown("يقوم هذا النظام بتوليد أوامر صيانة جاهزة وموثقة لإرسالها لفرق الفنيين الميدانيين عند رصد أي أعطال أو ترسبات حرجة.")
 
-    selected_inv_wo = st.selectbox("اختر المححول لإصدار أمر الشغل", [f"Inverter Block {i+1}" for i in range(num_inverters)])
+    selected_inv_wo = st.selectbox("اختر المحول لإصدار أمر الشغل", [f"Inverter Block {i+1}" for i in range(num_inverters)])
     work_order_id = f"WO-OMAN-2026-{np.random.randint(1000, 9999)}"
     
     wo_payload = {
@@ -271,20 +285,21 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل للأصول"):
-        with st.spinner("الوكيل الذكي يحلل LCOE، العواصف الرملية، أوامر الشغل، وأسطول الروبوتات..."):
+        with st.spinner("الوكيل الذكي يحلل LCOE، العواصف الرملية، أوامر الشغل، وإهلاك الروبوتات المالي..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
                 أنت الرئيس التنفيذي للعمليات الهندسية وخبير إدارة محطات الطاقة الشمسية الكبرى في سلطنة عمان.
-                بيانات المحطة الحالية:
+                بيانات المحطة المالية والتشغيلية:
                 - القدرة الكلية: {total_capacity_mw} MW.
-                - أسطول الروبوتات: {total_robots} روبوت تنظيف جاف.
-                - حالة العاصفة الرملية: {"نشطة" if dust_storm_active else "غير نشطة"}
+                - الاستثمار الأولي للروبوتات (CAPEX): {initial_robot_capex:,.0f} ر.ع.
+                - إهلاك الروبوتات اليومي: {daily_robot_depreciation} ر.ع.
+                - صافي العائد الاقتصادي اليومي: {net_robotic_roi:,.2f} ر.ع.
                 - تكلفة الطاقة المستوية (LCOE): {lcoe:.4f} ر.ع / kWh.
-                - إجمالي الفقد اليومي للطاقة: {total_plant_loss_kwh:,.1f} kWh.
+                - حالة العاصفة الرملية: {"نشطة" if dust_storm_active else "غير نشطة"}
                 
-                قدم تقريراً تشغيلياً واحترافياً باللغة العربية للإدارة العليا يغطي استقرار المحطة، كفاءة الأسطول الروبوتي في حالات الطوارئ، والتوصيات المالية طويلة المدى.
+                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا يغطي العائد المالي للاستثمار في الروبوتات، كفاءة الأصول في حالات الطوارئ الصحراوية، والتوصيات المالية طويلة المدى.
                 """
                 
                 interaction = client.interactions.create(
@@ -292,7 +307,7 @@ else:
                     input=prompt
                 )
                 
-                st.success("تم توليد التقرير المؤسسي الشامل بنجاح!")
+                st.success("تم توليد التقرير المالي والمؤسسي بنجاح!")
                 st.markdown(interaction.output_text)
                 
             except Exception as e:
