@@ -14,12 +14,11 @@ gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", typ
 rated_capacity = st.sidebar.slider("قدرة المحطة (kW)", min_value=5.0, max_value=50.0, value=10.0, step=5.0)
 
 st.sidebar.subheader("عوامل فقدان الأداء والمشاكل التشغيلية")
-soiling_loss = st.sidebar.slider("نسبة فقدان الغبار (Soiling %)", min_value=0.0, max_value=30.0, value=15.0, step=1.0)
-albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=0.8, value=0.2, step=0.05)
-tilt_error = st.sidebar.slider("خطأ زاوية الميل (Degrees °)", min_value=0.0, max_value=20.0, value=5.0, step=1.0)
-temp_loss = st.sidebar.slider("فقدان الحرارة الزائدة (%)", min_value=0.0, max_value=15.0, value=4.0, step=0.5)
+soiling_loss = st.sidebar.slider("نسبة فقدان الغبار (Soiling %)", min_value=0.0, max_value=100.0, value=15.0, step=1.0)
+albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.2, step=0.05)
+tilt_error = st.sidebar.slider("خطأ زاوية الميل (Degrees °)", min_value=0.0, max_value=90.0, value=5.0, step=1.0)
+temp_loss = st.sidebar.slider("فقدان الحرارة الزائدة (%)", min_value=0.0, max_value=100.0, value=4.0, step=0.5)
 
-# تم تحديث هذا السطر لضمان سلاسة وسهولة تعديل التعرفة
 tariff = st.sidebar.number_input("تعرفة الكهرباء (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
 
 @st.cache_data
@@ -38,7 +37,8 @@ def run_simulation(capacity, soiling_pct, alb, tilt_err, t_loss):
     albedo_factor = 1.0 + ((alb - 0.2) * 0.1) 
     expected_power = base_power * albedo_factor
     
-    total_degradation_pct = soiling_pct + (tilt_err * 0.8) + t_loss
+    # دمج نسب الفقد مع ضبط خطأ الميل ليعبر عن نسب مئوية مؤثرة
+    total_degradation_pct = soiling_pct + (tilt_err * 0.5) + t_loss
     actual_factor = max(0.0, 1.0 - (total_degradation_pct / 100.0))
     actual_power = expected_power * actual_factor
     
@@ -57,7 +57,7 @@ financial_loss = loss_kwh * tariff
 col1, col2, col3 = st.columns(3)
 col1.metric("إجمالي الطاقة المفقودة اليوم", f"{loss_kwh:.2f} kWh")
 col2.metric("الخسارة المالية التقديرية", f"{financial_loss:.3f} ر.ع")
-col3.metric("مستوى كفاءة الألواح الفعلي", f"{max(0, 100 - (soiling_loss + tilt_error*0.8 + temp_loss)):.1f}%")
+col3.metric("مستوى كفاءة الألواح الفعلي", f"{max(0.0, 100.0 - (soiling_loss + tilt_error*0.5 + temp_loss)):.1f}%")
 
 st.markdown("---")
 
@@ -80,16 +80,16 @@ else:
                 - قدرة المحطة: {rated_capacity} kW
                 - فقدان الغبار (Soiling): {soiling_loss}%
                 - معامل انعكاس الأرضية (Albedo): {albedo}
-                - خطأ زاوية الميل (Tilt Error): {tilt_error}°
-                - فقدان الحرارة الزائدة (Thermal Losses): {temp_loss}%
+                - خطأ زاوية الميل: {tilt_error}°
+                - فقدان الحرارة الزائدة: {temp_loss}%
                 - الطاقة المفقودة الإجمالية اليوم: {loss_kwh:.2f} kWh
                 - الخسارة المالية اليومية: {financial_loss:.3f} ريال عماني
                 - تعرفة الكهرباء: {tariff} ر.ع/kWh
                 
                 قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية يتضمن:
-                1. تحليل الأسباب الجذرية (تأثير الغبار، انحراف زاوية الميل، الانعكاس والوضاءة Albedo، والحرارة).
+                1. تحليل الأسباب الجذرية وتأثير نسب الفقد العالية المدخلة.
                 2. التقييم المالي والأثر الاقتصادي لهذه المشاكل مجتمعة بالاعتماد على التعرفة المدخلة.
-                3. توصيات هندسية تنفيذية واضحة لصناع القرار لجدولة الصيانة ومعالجة زاوية الميل وتنظيف الألواح.
+                3. توصيات هندسية تنفيذية واضحة لصناع القرار لمعالجة الأزمات التشغيلية.
                 """
                 
                 interaction = client.interactions.create(
