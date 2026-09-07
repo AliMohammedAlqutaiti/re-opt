@@ -29,7 +29,7 @@ api_temp, api_wind = fetch_live_weather()
 
 st.sidebar.header("إعدادات أسطول الروبوتات والبنية المؤسسية")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
-total_capacity = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=500.0, value=100.0, step=50.0) * 1000 # تحويل إلى kW
+total_capacity = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=500.0, value=100.0, step=50.0) * 1000 
 num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverter Blocks)", [2, 4, 6], index=1)
 
 st.sidebar.subheader("بيانات الموقع الحي (سلطنة عمان)")
@@ -40,7 +40,6 @@ live_wind = live_wind_kmh / 3.6
 albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.35, step=0.05)
 tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
 
-# اقتصاديات أسطول الروبوتات الجافة (بدون مياه أو عمالة يدوية)
 st.sidebar.subheader("اقتصاديات أسطول الروبوتات الآلية (Robotic O&M)")
 robot_fleet_size = st.sidebar.number_input("عدد روبوتات التنظيف الجاف النشطة", min_value=100, max_value=5000, value=1200, step=100)
 daily_robot_depreciation = st.sidebar.number_input("التكلفة اليومية لإهلاك وصيانة الروبوتات (ر.ع / يوم)", min_value=5.0, max_value=200.0, value=35.0, step=5.0)
@@ -101,7 +100,7 @@ inverter_data = run_robotic_simulation(total_capacity, num_inverters, inverter_c
 
 total_plant_loss_kwh = 0
 for inv_name, df_block in inverter_data.items():
-    block_loss = (df_block['التوأم الرقمي (المرجع المثالي)'] - df_block['الواقع التشغيلي (الواقع التشغيلي (أسطول الروبوتات))'] if 'الواقع التشغيلي (أسطول الروبوتات)' in df_block.columns else df_block.iloc[:, 1]).sum()
+    block_loss = (df_block['التوأم الرقمي (المرجع المثالي)'] - df_block['الواقع التشغيلي (أسطول الروبوتات - مسقط)']).sum() if 'الواقع التشغيلي (أسطول الروبوتات - مسقط)' in df_block.columns else (df_block['التوأم الرقمي (المرجع المثالي)'] - df_block['الواقع التشغيلي (أسطول الروبوتات)']).sum()
     total_plant_loss_kwh += block_loss
 
 daily_financial_loss = total_plant_loss_kwh * tariff
@@ -115,7 +114,7 @@ col_r3.metric("تكلفة إهلاك الروبوتات اليومية", f"{dail
 col_r4.metric("صافي العائد الاقتصادي اليومي", f"{net_robotic_roi:,.2f} ر.ع")
 
 if net_robotic_roi > 0:
-    st.success(f"✅ **الجدوى التشغيلية ممتازة:** قيمة الطاقة المفملة التي تم توفيرها عبر الروبوتات تتجاوز تكلفة إهلاك الأسطول بقيمة صافية **{net_robotic_roi:,.2f} ر.ع يومياً**. النظام يعمل بأعلى كفاءة استثمارية.")
+    st.success(f"✅ **الجدوى التشغيلية ممتازة:** قيمة الطاقة الموفرة عبر الروبوتات تتجاوز تكلفة إهلاك الأسطول بقيمة صافية **{net_robotic_roi:,.2f} ر.ع يومياً**. النظام يعمل بأعلى كفاءة استثمارية.")
 else:
     st.warning(f"⚠️ **تنبيه إهلاك الأسطول:** تكلفة تشغيل الروبوتات تفوق الخسارة الحالية. يُوصى بجدولة دورات مسح أطول للروبوتات لتقليل الاستهلاك.")
 
@@ -125,9 +124,8 @@ st.subheader("📊 أداء الكتل الكهربائية مع تشغيل ال
 for inv_name, df_block in inverter_data.items():
     st.markdown(f"**🔹 تحليلات أداء {inv_name}**")
     
-    actual_col = [c for c in df_block.columns if 'الواقع التشغيلي' in c][0]
     ideal_sum = df_block['التوأم الرقمي (المرجع المثالي)'].sum()
-    actual_sum = df_block[actual_col].sum()
+    actual_sum = df_block['الواقع التشغيلي (أسطول الروبوتات)'].sum()
     block_loss = ideal_sum - actual_sum
     block_financial_loss = block_loss * tariff
     
@@ -160,7 +158,7 @@ else:
                 - ظروف مسقط الحية: حرارة {live_temp}°C، رياح {live_wind_kmh} km/h.
                 
                 قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية للإدارة العليا يتضمن:
-                1. تقييم كفاءة أسطول الروبوتات الجافة في حماية استثمارات المגהجا في البيئة الصحراوية القاسية.
+                1. تقييم كفاءة أسطول الروبوتات الجافة في حماية استثمارات المحطة في البيئة الصحراوية القاسية.
                 2. تحليل الجدوى المالية ومقارنة نموذج التشغيل الآلي التلقائي بالكامل مقابل التكاليف الباهظة للغسيل اليدوي والمائي.
                 3. توصيات تشغيلية لإطالة عمر الروبوتات وتحسين دورات المسح.
                 """
