@@ -8,7 +8,7 @@ from google import genai
 st.set_page_config(page_title="RE-OPT: Enterprise Industrial Digital Twin", layout="wide")
 
 st.title("⚡ RE-OPT: Manah Enterprise Digital Twin & AI Operations Center")
-st.markdown("منصة التوأم الرقمي المؤسسي - تشخيص الأعطال (FDD)، أسطول الروبوتات، ونماذج الألواح ثنائية الوجه.")
+st.markdown("منصة التوأم الرقمي المؤسسي - مقارنة الألواح الأحادية وثنائية الوجه، تشخيص الأعطال (FDD)، وأسطول الروبوتات.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather():
@@ -42,9 +42,11 @@ else:
     live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=float(api_wind*3.6), step=0.5)
     live_wind = live_wind_kmh / 3.6
 
-# ديناميكية الألواح ثنائية الوجه ومعامل الانعكاس الموسمي (Bifacial & Albedo Dynamics)
-st.sidebar.subheader("نماذج الألواح ثنائية الوجه (Bifacial Dynamics)")
-albedo = st.sidebar.slider("معامل الانعكاس الأرضي الموسمي (Albedo)", min_value=0.1, max_value=0.8, value=0.40, step=0.05)
+# إعدادات التكنولوجيا (أحادية مقابل ثنائية الوجه)
+st.sidebar.subheader("تكنولوجيا الألواح (Technology Mix)")
+technology_type = st.sidebar.selectbox("نوع ألواح المحطة الرئيسية", ["ثنائية الوجه (Bifacial)", "أحادية الوجه (Mono-facial)", "هجين (مزيج بين النوعين)"])
+
+albedo = st.sidebar.slider("معامل الانعكاس الأرضي (Albedo)", min_value=0.1, max_value=0.8, value=0.40, step=0.05)
 bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه للألواح (%)", min_value=60.0, max_value=85.0, value=70.0, step=5.0) / 100.0
 
 tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
@@ -64,7 +66,7 @@ for i in range(num_inverters):
         inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt_error': inv_tilt_err}
 
 @st.cache_data
-def run_enterprise_simulation(total_cap, n_inv, configs, alb, bif_factor, t_amb, wind, is_live):
+def run_enterprise_simulation(total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
     site_latitude = 23.58
     site_longitude = 58.38
     tz = 'Asia/Muscat'
@@ -82,21 +84,26 @@ def run_enterprise_simulation(total_cap, n_inv, configs, alb, bif_factor, t_amb,
     temp_factor = 1.0 + temp_coeff * (cell_temp - 25.0)
     temp_factor = temp_factor.clip(lower=0.5)
     
-    # حساب المكسب الإضافي للألواح ثنائية الوجه بناءً على انعكاس التربة (Albedo)
-    bifacial_gain = 1.0 + (alb * bif_factor * 0.18)
     block_capacity = total_cap / n_inv
     
     simulation_results = {}
-    total_ideal = np.zeros(len(times))
+    total_mono_ideal = np.zeros(len(times))
+    total_bif_ideal = np.zeros(len(times))
     total_actual = np.zeros(len(times))
     
     for i in range(n_inv):
         inv_name = f"Inverter Block {i+1}"
         cfg = configs[inv_name]
         
-        base_power = (ghi / peak_ghi) * block_capacity * bifacial_gain
+        base_power = (ghi / peak_ghi) * block_capacity
         base_power = base_power.clip(lower=0)
-        ideal_power = base_power * temp_factor
+        
+        # حساب النوع الأحادي والنوع ثنائي الوجه لكل محول للمقارنة الهندسية
+        mono_ideal = base_power * temp_factor
+        bif_gain = 1.0 + (alb * bif_factor * 0.18)
+        bif_ideal = base_power * bif_factor * temp_factor * bif_gain if tech_mode != "أحادية الوجه (Mono-facial)" else mono_ideal
+        
+        selected_ideal = bif_ideal if "ثنائية الوجه" in tech_mode or (tech_mode == "هجين (مزيج بين النوعين)" and i % 2 == 0) else mono_ideal
         
         total_degradation = cfg['soiling'] + (cfg['tilt_error'] * 0.5)
         actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
@@ -104,61 +111,63 @@ def run_enterprise_simulation(total_cap, n_inv, configs, alb, bif_factor, t_amb,
         if is_live:
             np.random.seed(100 + i)
             noise = np.random.normal(1.0, 0.008, len(times))
-            actual_power = ideal_power * actual_factor * noise
+            actual_power = selected_ideal * actual_factor * noise
         else:
-            actual_power = ideal_power * actual_factor
+            actual_power = selected_ideal * actual_factor
             
         simulation_results[inv_name] = pd.DataFrame({
-            'التوأم الرقمي (المثالي ثنائي الوجه)': ideal_power,
+            'التوأم الرقمي (أحادى الوجه Mono)': mono_ideal * actual_factor,
+            'التوأم الرقمي (ثنائي الوجه Bifacial)': bif_ideal * actual_factor,
             'قياسات سكادا الفعليّة (IoT)': actual_power
         }, index=times)
         
-        total_ideal += ideal_power
+        total_mono_ideal += (mono_ideal * actual_factor)
+        total_bif_ideal += (bif_ideal * actual_factor)
         total_actual += actual_power
 
     simulation_results['Plant_Total'] = pd.DataFrame({
-        'إجمالي التوأم الرقمي للمحطة': total_ideal,
+        'إجمالي التوأم (أحادى الوجه)': total_mono_ideal,
+        'إجمالي التوأم (ثنائي الوجه)': total_bif_ideal,
         'إجمالي قياسات سكادا الفعلية': total_actual
     }, index=times)
     
     return simulation_results
 
-inverter_data = run_enterprise_simulation(total_capacity, num_inverters, inverter_configs, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
+inverter_data = run_enterprise_simulation(total_capacity, num_inverters, inverter_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
 
 df_total = inverter_data['Plant_Total']
-total_plant_loss_kwh = (df_total['إجمالي التوأم الرقمي للمحطة'] - df_total['إجمالي قياسات سكادا الفعلية']).sum()
+total_plant_loss_kwh = (df_total['إجمالي التوأم (ثنائي الوجه)'] - df_total['إجمالي قياسات سكادا الفعلية']).sum()
 daily_financial_loss = max(0.0, total_plant_loss_kwh * tariff)
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
-# تقسيم الواجهة إلى 3 تبويبات رئيسية لتنظيم الأنظمة الثلاثة
-tab1, tab2, tab3 = st.tabs(["📈 التوأم الرقمي والألواح ثنائية الوجه", "🔍 التشخيص الذكي للأعطال (FDD)", "🤖 غرفة عمليات أسطول الروبوتات"])
+tab1, tab2, tab3 = st.tabs(["📈 المقارنة بين الأحادية وثنائية الوجه", "🔍 التشخيص الذكي للأعطال (FDD)", "🤖 غرفة عمليات أسطول الروبوتات"])
 
 with tab1:
-    st.subheader("📈 الأداء الكلي للمحطة ونماذج الحسابات ثنائية الوجه (Bifacial Yield)")
+    st.subheader(f"📈 مقارنة إنتاجية المحطة ({technology_type})")
     
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("مكسب الألواح الثنائية (Albedo)", f"+{(albedo * bifaciality_factor * 18):.1f}% إضافي")
+    c1.metric("نوع التكنولوجيا المعتمدة", technology_type)
     c2.metric("إجمالي الفقد المفقود للطاقة", f"{total_plant_loss_kwh:,.1f} kWh")
     c3.metric("تكلفة إهلاك الروبوتات", f"{daily_robot_depreciation:.2f} ر.ع")
     c4.metric("صافي العائد الاقتصادي", f"{net_robotic_roi:,.2f} ر.ع")
 
     st.markdown("---")
+    st.markdown("**مقارنة تفصيلية بين أداء الألواح أحادية الوجه (Mono)، ثنائية الوجه (Bifacial)، والواقع الفعلي للسكادا:**")
     st.line_chart(df_total)
 
 with tab2:
     st.subheader("🔍 خوارزميات الكشف المبكر عن الأعطال والتشخيص (Fault Detection & Diagnostics - FDD)")
-    st.markdown("يقوم النظام بمقارنة قراءات الحساسات الفعلية مع المرجع الرياضي للتوأم الرقمي لاكتشاف الأعطال الخفية والانحرافات التشغيلية فور وقوعها.")
+    st.markdown("مقارنة الإنتاج الفعلي للسكادا مع النموذج المثالي لتقييم الانحرافات واكتشاف الأعطال الخفية في الكتل.")
 
     fdd_summary = []
     for inv_name, df_block in inverter_data.items():
         if inv_name == 'Plant_Total':
             continue
         
-        ideal_sum = df_block['التوأم الرقمي (المثالي ثنائي الوجه)'].sum()
+        ideal_sum = df_block['التوأم الرقمي (ثنائي الوجه Bifacial)'].sum()
         actual_sum = df_block['قياسات سكادا الفعليّة (IoT)'].sum()
         deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
         
-        # منطق اكتشاف الأعطال (FDD Logic)
         if deviation_pct > 8.0:
             status = "🚨 تنبيه حرج: تدهور حاد / ترسبات غبار غير معتادة"
         elif deviation_pct > 4.0:
@@ -174,13 +183,13 @@ with tab2:
         
         with st.expander(f"تقرير تشخيص محول {inv_name} (الانحراف: {deviation_pct:.2f}%)"):
             st.write(f"الحالة الحالية: {status}")
-            st.line_chart(df_block)
+            st.line_chart(df_block[['التوأم الرقمي (أحادى الوجه Mono)', 'التوأم الرقمي (ثنائي الوجه Bifacial)', 'قياسات سكادا الفعليّة (IoT)']])
 
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
     st.subheader("🤖 لوحة تحكم ومراقبة أسطول الروبوتات الآلية (Robotic Mission Control)")
-    st.markdown(f"إدارة ومتابعة **{total_robots} روبوت** لتنظيف الألواح جافاً عبر كتل المحطة في بيئة صحراء مسقط ومنح.")
+    st.markdown(f"إدارة ومتابعة **{total_robots} روبوت** لتنظيف الألواح جافاً عبر كتل المحطة.")
 
     r_col1, r_col2, r_col3 = st.columns(3)
     r_col1.metric("الروبوتات النشطة في الخدمة", f"{int(total_robots * 0.95)} روبوت")
@@ -201,7 +210,7 @@ with tab3:
             'عدد الروبوتات المخصصة': assigned_robots,
             'صحة بطاريات الأسطول': battery_health,
             'مستوى النظافة الحالي': cleaning_progress,
-            'حالة المهمة': '🔄 تنظيف دوري نشط' if i%2==0 else '🅿️ في محطة الشدان'
+            'حالة المهمة': '🔄 تنظيف دوري نشط' if i%2==0 else '🅿️ في محطة الشحن'
         })
         
     st.table(pd.DataFrame(zone_data))
@@ -213,22 +222,22 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل للأصول"):
-        with st.spinner("الوكيل الذكي يحلل بيانات FDD، الألواح ثنائية الوجه، وأسطول الروبوتات..."):
+        with st.spinner("الوكيل الذكي يحلل أداء الألواح الأحادية والثنائية، فحص FDD، وأسطول الروبوتات..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
                 أنت الرئيس التنفيذي للعمليات الهندسية وخبير إدارة محطات الطاقة الشمسية الكبرى.
                 بيانات المحطة الحالية:
+                - نوع تكنولوجيا الألواح: {technology_type}
                 - القدرة الكلية: {total_capacity/1000} MW على {num_inverters} محولات.
                 - أسطول الروبوتات: {total_robots} روبوت تنظيف جاف.
-                - معامل انعكاس الأرضية (Albedo): {albedo} مع ثنائية وجه بنسبة {bifaciality_factor*100}%.
                 - إجمالي الفقد اليومي للطاقة: {total_plant_loss_kwh:,.1f} kWh.
                 - صافي العائد بعد إهلاك الروبوتات: {net_robotic_roi:,.2f} ر.ع.
                 
                 قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية للإدارة العليا يغطي:
-                1. تقييم نتائج الكشف عن الأعطال (FDD) وكفاءة كتل المحولات.
-                2. أداء الألواح ثنائية الوجه ومكاسب الإنتاج عبر انعكاسات التربة الصحراوية.
+                1. مقارنة كفاءة وإنتاجية الألواح أحادية الوجه مقابل ثنائية الوجه في بيئة مسقط.
+                2. نتائج الكشف عن الأعطال (FDD) وكفاءة كتل المحولات.
                 3. تقييم كفاءة عمليات أسطول الروبوتات الجافة وتوصيات الصيانة الميدانية.
                 """
                 
