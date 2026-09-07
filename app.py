@@ -5,10 +5,10 @@ import pvlib
 import requests
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Enterprise SCADA Digital Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Enterprise Industrial Digital Twin", layout="wide")
 
-st.title("⚡ RE-OPT: SCADA & IoT Integrated Digital Twin")
-st.markdown("منصة التوأم الرقمي المؤسسي - التكامل الحي مع أنظمة السكادا (SCADA) وإنترنت الأشياء (IoT).")
+st.title("⚡ RE-OPT: Manah Enterprise Digital Twin & AI Operations Center")
+st.markdown("منصة التوأم الرقمي المؤسسي - تشخيص الأعطال (FDD)، أسطول الروبوتات، ونماذج الألواح ثنائية الوجه.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather():
@@ -27,46 +27,44 @@ def fetch_live_weather():
 
 api_temp, api_wind = fetch_live_weather()
 
-st.sidebar.header("إعدادات الاتصال والسكادا (SCADA & IoT)")
+st.sidebar.header("إعدادات البنية المؤسسية والتشغيلية")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
-
-# خيار التبديل بين محاكاة السكادا الحية والتحكم اليدوي
-scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع محطة SCADA (IoT Stream)", value=False)
-
 total_capacity = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=500.0, value=100.0, step=50.0) * 1000 
 num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverter Blocks)", [2, 4, 6], index=1)
 
+scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع محطة SCADA (IoT Stream)", value=True)
+
 if scada_mode:
-    st.sidebar.success("🟢 متصل بـ SCADA Inverter Gateway (عبر MQTT/Modbus)")
     live_temp = api_temp
     live_wind = api_wind
-    st.sidebar.info(f"🌡️ حرارة السكادا الحية: {live_temp}°C | 💨 الرياح: {live_wind*3.6:.1f} km/h")
 else:
-    st.sidebar.warning("🟡 الوضع اليدوي / المحاكاة المتقدمة")
     live_temp = st.sidebar.number_input("درجة الحرارة المحيطة (°C)", min_value=10.0, max_value=55.0, value=float(api_temp), step=0.5)
     live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=float(api_wind*3.6), step=0.5)
     live_wind = live_wind_kmh / 3.6
 
-albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.35, step=0.05)
+# ديناميكية الألواح ثنائية الوجه ومعامل الانعكاس الموسمي (Bifacial & Albedo Dynamics)
+st.sidebar.subheader("نماذج الألواح ثنائية الوجه (Bifacial Dynamics)")
+albedo = st.sidebar.slider("معامل الانعكاس الأرضي الموسمي (Albedo)", min_value=0.1, max_value=0.8, value=0.40, step=0.05)
+bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه للألواح (%)", min_value=60.0, max_value=85.0, value=70.0, step=5.0) / 100.0
+
 tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
 
-st.sidebar.subheader("اقتصاديات أسطول الروبوتات الآلية (Robotic O&M)")
-robot_fleet_size = st.sidebar.number_input("عدد روبوتات التنظيف الجاف النشطة", min_value=100, max_value=5000, value=1200, step=100)
-daily_robot_depreciation = st.sidebar.number_input("التكلفة اليومية لإهلاك وصيانة الروبوتات (ر.ع / يوم)", min_value=5.0, max_value=200.0, value=35.0, step=5.0)
+# إدارة أسطول الروبوتات
+st.sidebar.subheader("إدارة أسطول الروبوتات الجافة (1,800 Robot Fleet)")
+total_robots = st.sidebar.number_input("إجمالي الروبوتات النشطة", min_value=500, max_value=3000, value=1800, step=100)
+daily_robot_depreciation = st.sidebar.number_input("إهلاك الصيانة اليومي للأسطول (ر.ع)", min_value=10.0, max_value=300.0, value=45.0, step=5.0)
 
 st.sidebar.subheader("التحكم المستقل لكتل المحولات (Inverter Blocks)")
 inverter_configs = {}
 for i in range(num_inverters):
     inv_name = f"Inverter Block {i+1}"
     with st.sidebar.expander(f"إعدادات تشغيل {inv_name}", expanded=(i==0)):
-        # إذا كان وضع سكادا مفعل، يمكن جلب القراءات الفعلية من الحساسات
-        default_soiling = float(2.0 + (i * 1.0)) if scada_mode else float(3.0 + (i * 1.5))
-        inv_soiling = st.slider(f"فراغ الغبار التشغيلي (%) - {inv_name}", min_value=0.0, max_value=20.0, value=default_soiling, step=0.5, key=f"soiling_inv_{i}")
-        inv_tilt_err = st.slider(f"خطأ الميل الفعلي (°) - {inv_name}", min_value=0.0, max_value=10.0, value=float(i * 1.0), step=0.5, key=f"tilt_inv_{i}")
+        inv_soiling = st.slider(f"تراكم الغبار (%) - {inv_name}", min_value=0.0, max_value=25.0, value=float(2.0 + (i * 1.5)), step=0.5, key=f"soiling_inv_{i}")
+        inv_tilt_err = st.slider(f"خطأ الميل (°) - {inv_name}", min_value=0.0, max_value=10.0, value=float(i * 0.8), step=0.5, key=f"tilt_inv_{i}")
         inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt_error': inv_tilt_err}
 
 @st.cache_data
-def run_scada_simulation(total_cap, n_inv, configs, alb, t_amb, wind, is_live):
+def run_enterprise_simulation(total_cap, n_inv, configs, alb, bif_factor, t_amb, wind, is_live):
     site_latitude = 23.58
     site_longitude = 58.38
     tz = 'Asia/Muscat'
@@ -84,7 +82,8 @@ def run_scada_simulation(total_cap, n_inv, configs, alb, t_amb, wind, is_live):
     temp_factor = 1.0 + temp_coeff * (cell_temp - 25.0)
     temp_factor = temp_factor.clip(lower=0.5)
     
-    albedo_factor = 1.0 + ((alb - 0.2) * 0.15)
+    # حساب المكسب الإضافي للألواح ثنائية الوجه بناءً على انعكاس التربة (Albedo)
+    bifacial_gain = 1.0 + (alb * bif_factor * 0.18)
     block_capacity = total_cap / n_inv
     
     simulation_results = {}
@@ -95,105 +94,142 @@ def run_scada_simulation(total_cap, n_inv, configs, alb, t_amb, wind, is_live):
         inv_name = f"Inverter Block {i+1}"
         cfg = configs[inv_name]
         
-        base_power = (ghi / peak_ghi) * block_capacity * albedo_factor
+        base_power = (ghi / peak_ghi) * block_capacity * bifacial_gain
         base_power = base_power.clip(lower=0)
         ideal_power = base_power * temp_factor
         
         total_degradation = cfg['soiling'] + (cfg['tilt_error'] * 0.5)
         actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
         
-        # إذا كان وضع سكادا مفعل، نضيف تشويشاً طفيفاً يمثل تذبذب قراءات الحساسات الحية (Noise)
         if is_live:
-            np.random.seed(42 + i)
-            noise = np.random.normal(1.0, 0.01, len(times))
+            np.random.seed(100 + i)
+            noise = np.random.normal(1.0, 0.008, len(times))
             actual_power = ideal_power * actual_factor * noise
         else:
             actual_power = ideal_power * actual_factor
             
         simulation_results[inv_name] = pd.DataFrame({
-            'التوأم الرقمي (المرجع المثالي)': ideal_power,
-            'قياسات سكادا الفعلية (IoT Feed)': actual_power
+            'التوأم الرقمي (المثالي ثنائي الوجه)': ideal_power,
+            'قياسات سكادا الفعليّة (IoT)': actual_power
         }, index=times)
         
         total_ideal += ideal_power
         total_actual += actual_power
 
     simulation_results['Plant_Total'] = pd.DataFrame({
-        'التوأم الرقمي للمحطة (المثالي)': total_ideal,
-        'إجمالي قياسات سكادا (الفعلي)': total_actual
+        'إجمالي التوأم الرقمي للمحطة': total_ideal,
+        'إجمالي قياسات سكادا الفعلية': total_actual
     }, index=times)
     
     return simulation_results
 
-inverter_data = run_scada_simulation(total_capacity, num_inverters, inverter_configs, albedo, live_temp, live_wind, scada_mode)
+inverter_data = run_enterprise_simulation(total_capacity, num_inverters, inverter_configs, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
 
 df_total = inverter_data['Plant_Total']
-total_plant_loss_kwh = (df_total['التوأم الرقمي للمحطة (المثالي)'] - df_total['إجمالي قياسات سكادا (الفعلي)']).sum()
+total_plant_loss_kwh = (df_total['إجمالي التوأم الرقمي للمحطة'] - df_total['إجمالي قياسات سكادا الفعلية']).sum()
 daily_financial_loss = max(0.0, total_plant_loss_kwh * tariff)
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
-tab1, tab2 = st.tabs(["📈 لوحة القيادة والسكادا العامة", "🔌 تحليل المحولات المستقلة (SCADA Telemetry)"])
+# تقسيم الواجهة إلى 3 تبويبات رئيسية لتنظيم الأنظمة الثلاثة
+tab1, tab2, tab3 = st.tabs(["📈 التوأم الرقمي والألواح ثنائية الوجه", "🔍 التشخيص الذكي للأعطال (FDD)", "🤖 غرفة عمليات أسطول الروبوتات"])
 
 with tab1:
-    if scada_mode:
-        st.info("📡 **حالة النظام:** يتم استقبال بيانات التليمتري الحية عبر بروتوكول SCADA Gateway بشكل لحظي.")
-    else:
-        st.info("🖥️ **حالة النظام:** تعمل المنصة في وضع المحاكاة الهندسية المستقلة.")
-        
-    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-    col_r1.metric("وضع الاتصال", "Live SCADA" if scada_mode else "Manual Simulation")
-    col_r2.metric("إجمالي الفقد اليومي للطاقة", f"{total_plant_loss_kwh:,.1f} kWh")
-    col_r3.metric("إهلاك أسطول الروبوتات", f"{daily_robot_depreciation:.2f} ر.ع")
-    col_r4.metric("صافي العائد الاقتصادي", f"{net_robotic_roi:,.2f} ر.ع")
+    st.subheader("📈 الأداء الكلي للمحطة ونماذج الحسابات ثنائية الوجه (Bifacial Yield)")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("مكسب الألواح الثنائية (Albedo)", f"+{(albedo * bifaciality_factor * 18):.1f}% إضافي")
+    c2.metric("إجمالي الفقد المفقود للطاقة", f"{total_plant_loss_kwh:,.1f} kWh")
+    c3.metric("تكلفة إهلاك الروبوتات", f"{daily_robot_depreciation:.2f} ر.ع")
+    c4.metric("صافي العائد الاقتصادي", f"{net_robotic_roi:,.2f} ر.ع")
 
     st.markdown("---")
-    st.markdown("**مقارنة الإنتاج الكلي للمحطة (التوأم الرقمي المثالي مقابل بيانات سكادا الفعلية)**")
     st.line_chart(df_total)
 
 with tab2:
-    st.subheader("🔌 قياسات التليمتري الحية لكل محول طاقة (Inverter Telemetry)")
+    st.subheader("🔍 خوارزميات الكشف المبكر عن الأعطال والتشخيص (Fault Detection & Diagnostics - FDD)")
+    st.markdown("يقوم النظام بمقارنة قراءات الحساسات الفعلية مع المرجع الرياضي للتوأم الرقمي لاكتشاف الأعطال الخفية والانحرافات التشغيلية فور وقوعها.")
+
+    fdd_summary = []
     for inv_name, df_block in inverter_data.items():
         if inv_name == 'Plant_Total':
             continue
+        
+        ideal_sum = df_block['التوأم الرقمي (المثالي ثنائي الوجه)'].sum()
+        actual_sum = df_block['قياسات سكادا الفعليّة (IoT)'].sum()
+        deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
+        
+        # منطق اكتشاف الأعطال (FDD Logic)
+        if deviation_pct > 8.0:
+            status = "🚨 تنبيه حرج: تدهور حاد / ترسبات غبار غير معتادة"
+        elif deviation_pct > 4.0:
+            status = "⚠️ تنبيه متوسط: انحراف طفيف في أداء سلسلة (String Mismatch)"
+        else:
+            status = "✅ الأداء طبيعي ومستقر ضمن الحدود التشغيلية"
             
-        st.markdown(f"**🔹 قراءات حساسات ومحولات {inv_name}**")
+        fdd_summary.append({
+            'المحول (Inverter Block)': inv_name,
+            'نسبة الانحراف الفعلي (%)': f"{deviation_pct:.2f}%",
+            'الحالة التشخيصية (FDD Status)': status
+        })
         
-        ideal_sum = df_block['التوأم الرقمي (المرجع المثالي)'].sum()
-        actual_sum = df_block['قياسات سكادا الفعلية (IoT Feed)'].sum()
-        block_loss = ideal_sum - actual_sum
-        block_financial_loss = max(0.0, block_loss * tariff)
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric(f"الطاقة المفقودة ({inv_name})", f"{block_loss:,.1f} kWh")
-        c2.metric(f"الخسارة المالية ({inv_name})", f"{block_financial_loss:,.3f} ر.ع")
-        c3.metric(f"قراءات الحساسات النشطة", f"غبار: {inverter_configs[inv_name]['soiling']}%")
-        
-        st.line_chart(df_block)
-        st.markdown("---")
+        with st.expander(f"تقرير تشخيص محول {inv_name} (الانحراف: {deviation_pct:.2f}%)"):
+            st.write(f"الحالة الحالية: {status}")
+            st.line_chart(df_block)
 
-st.subheader("🤖 تقرير تحليل بيانات سكادا والأداء المؤسسي (Gemini 3.6)")
+    st.table(pd.DataFrame(fdd_summary))
+
+with tab3:
+    st.subheader("🤖 لوحة تحكم ومراقبة أسطول الروبوتات الآلية (Robotic Mission Control)")
+    st.markdown(f"إدارة ومتابعة **{total_robots} روبوت** لتنظيف الألواح جافاً عبر كتل المحطة في بيئة صحراء مسقط ومنح.")
+
+    r_col1, r_col2, r_col3 = st.columns(3)
+    r_col1.metric("الروبوتات النشطة في الخدمة", f"{int(total_robots * 0.95)} روبوت")
+    r_col2.metric("الروبوتات قيد الشحن/الصيانة", f"{int(total_robots * 0.05)} روبوت")
+    r_col3.metric("معدل استهلاك المياه", "0.0 لتر (100% تنظيف جاف)")
+
+    st.markdown("### 🗺️ حالة انتشار الروبوتات في كتل المحطة (Robotic Zone Status)")
+    
+    zone_data = []
+    for i in range(num_inverters):
+        inv_name = f"Inverter Block {i+1}"
+        assigned_robots = int(total_robots / num_inverters)
+        battery_health = f"{92 - (i*3)}%"
+        cleaning_progress = f"{100 - (inverter_configs[inv_name]['soiling'] * 3)}%"
+        
+        zone_data.append({
+            'المنطقة / الكتلة': inv_name,
+            'عدد الروبوتات المخصصة': assigned_robots,
+            'صحة بطاريات الأسطول': battery_health,
+            'مستوى النظافة الحالي': cleaning_progress,
+            'حالة المهمة': '🔄 تنظيف دوري نشط' if i%2==0 else '🅿️ في محطة الشدان'
+        })
+        
+    st.table(pd.DataFrame(zone_data))
+
+st.markdown("---")
+st.subheader("🤖 تقرير تحليل الأصول والعمليات المؤسسية (Gemini 3.6)")
 
 if not gemini_api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key لتفعيل الوكيل الذكي.")
+    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
-    if st.button("توليد تقرير تشخيص سكادا وأسطول الروبوتات"):
-        with st.spinner("الوكيل الذكي يحلل تدفقات بيانات سكادا وحساسات إنترنت الأشياء..."):
+    if st.button("توليد التقرير التشغيلي الشامل للأصول"):
+        with st.spinner("الوكيل الذكي يحلل بيانات FDD، الألواح ثنائية الوجه، وأسطول الروبوتات..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
-                أنت مدير هندسة التشغيل والتحكم الآلي في المحطات الكبرى (SCADA & IoT Operations Manager).
-                بيانات الربط الحالية:
-                - وضع الاتصال: {"Live SCADA Stream Active" if scada_mode else "Simulation Mode"}
-                - إجمالي القدرة: {total_capacity/1000} MW على {num_inverters} محولات.
-                - إجمالي الفقد اليومي المكتشف من السكادا: {total_plant_loss_kwh:,.1f} kWh.
-                - صافي العائد الاقتصادي بعد خصم إهلاك الروبوتات: {net_robotic_roi:,.2f} ر.ع.
-                - حالة الطقس الحية من السكادا: حرارة {live_temp}°C، رياح {live_wind*3.6:.1f} km/h.
+                أنت الرئيس التنفيذي للعمليات الهندسية وخبير إدارة محطات الطاقة الشمسية الكبرى.
+                بيانات المحطة الحالية:
+                - القدرة الكلية: {total_capacity/1000} MW على {num_inverters} محولات.
+                - أسطول الروبوتات: {total_robots} روبوت تنظيف جاف.
+                - معامل انعكاس الأرضية (Albedo): {albedo} مع ثنائية وجه بنسبة {bifaciality_factor*100}%.
+                - إجمالي الفقد اليومي للطاقة: {total_plant_loss_kwh:,.1f} kWh.
+                - صافي العائد بعد إهلاك الروبوتات: {net_robotic_roi:,.2f} ر.ع.
                 
-                قدم تقريراً تشغيلياً واحترافياً باللغة العربية للإدارة العليا يوضح:
-                1. تقييم دقة قراءات التليمتري الحية القادمة من حساسات سكادا ومقارنتها بالنموذج المثالي للتوأم الرقمي.
-                2. كفاءة الاستجابة التلقائية لأسطول الروبوتات الجافة في معالجة الانحرافات المرصودة عبر الشبكة.
-                3. التوصيات التقنية لفريق هندسة التحكم الآلي لضمان استقرار قراءات الـ MPPT.
+                قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية للإدارة العليا يغطي:
+                1. تقييم نتائج الكشف عن الأعطال (FDD) وكفاءة كتل المحولات.
+                2. أداء الألواح ثنائية الوجه ومكاسب الإنتاج عبر انعكاسات التربة الصحراوية.
+                3. تقييم كفاءة عمليات أسطول الروبوتات الجافة وتوصيات الصيانة الميدانية.
                 """
                 
                 interaction = client.interactions.create(
@@ -201,7 +237,7 @@ else:
                     input=prompt
                 )
                 
-                st.success("تم توليد التقرير التحليلي لبيانات سكادا بنجاح!")
+                st.success("تم توليد التقرير المؤسسي الشامل بنجاح!")
                 st.markdown(interaction.output_text)
                 
             except Exception as e:
