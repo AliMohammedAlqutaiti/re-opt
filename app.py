@@ -8,7 +8,7 @@ from google import genai
 st.set_page_config(page_title="RE-OPT: Enterprise Digital Twin Dashboard", layout="wide")
 
 st.title("⚡ RE-OPT: Enterprise Renewable Energy Digital Twin & O&M Platform")
-st.markdown("منصة التوأم الرقمي المؤسسي وإدارة أصول الطاقة الشمسية - طبولوجيا المحولات وسلاسل الألواح الموزعة.")
+st.markdown("منصة التوأم الرقمي المؤسسي - التحكم المستقل والرسوم البيانية المخصصة لكل محول (Inverter).")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather():
@@ -29,32 +29,30 @@ api_temp, api_wind = fetch_live_weather()
 
 st.sidebar.header("إعدادات البنية المؤسسية والطبولوجيا")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
-total_capacity = st.sidebar.slider("إجمالي قدرة المحطة (kW)", min_value=50.0, max_value=500.0, value=100.0, step=50.0)
-
-st.sidebar.subheader("توزيع المحولات (Inverter Blocks)")
-num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverters)", [2, 3, 4], index=0)
+total_capacity = st.sidebar.slider("إجمالي قدرة المحطة (kW)", min_value=30.0, max_value=300.0, value=90.0, step=30.0)
+num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverters)", [2, 3, 4], index=1)
 
 st.sidebar.subheader("بيانات الموقع الحي (مسقط)")
 live_temp = st.sidebar.number_input("درجة الحرارة المحيطة (°C)", min_value=10.0, max_value=55.0, value=float(api_temp), step=0.5)
 live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=float(api_wind), step=0.5)
 live_wind = live_wind_kmh / 3.6
 
-st.sidebar.subheader("التحكم في عدم تطابق السلاسل (String Mismatch)")
-# محاكاة تأثير ترسب موضعي على محول معين
-affected_inverter = st.sidebar.selectbox("المحول المتأثر بخلل موضعي / غبار كثيف", [f"Inverter Block {i+1}" for i in range(num_inverters)])
-localized_soiling_extra = st.sidebar.slider("نسبة الغبار الإضافية على السلسلة المتأثرة (%)", min_value=0.0, max_value=40.0, value=15.0, step=5.0)
-
-days_since_cleaning = st.sidebar.slider("الأيام العامة منذ آخر تنظيف", min_value=1, max_value=90, value=15, step=1)
-max_soiling_limit = 40.0
-base_soiling = max_soiling_limit * (1.0 - np.exp(-0.04 * days_since_cleaning))
-
 albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.35, step=0.05)
-tilt_error = st.sidebar.slider("خطأ زاوية الميل العام (Degrees °)", min_value=0.0, max_value=90.0, value=2.0, step=1.0)
 tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
-cleaning_cost = st.sidebar.number_input("تكلفة عقد التنظيف الميداني (ر.ع)", min_value=10.0, max_value=500.0, value=75.0, step=5.0)
+
+# **التحكم المستقل لكل محول مع الحفاظ على الحالة (State Management)**
+st.sidebar.subheader("التحكم المستقل للمحولات (Individual Inverter Settings)")
+inverter_configs = {}
+
+for i in range(num_inverters):
+    inv_name = f"Inverter Block {i+1}"
+    with st.sidebar.expander(f"إعدادات تشغيل {inv_name}", expanded=(i==0)):
+        inv_soiling = st.slider(f"فقدان الغبار (%) - {inv_name}", min_value=0.0, max_value=40.0, value=float(10.0 + (i * 5.0)), step=1.0, key=f"soiling_inv_{i}")
+        inv_tilt_err = st.slider(f"خطأ الميل (°) - {inv_name}", min_value=0.0, max_value=15.0, value=float(i * 2.0), step=1.0, key=f"tilt_inv_{i}")
+        inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt_error': inv_tilt_err}
 
 @st.cache_data
-def run_distributed_simulation(total_cap, n_inv, affected_block, extra_soiling, base_soil, alb, tilt_err, t_amb, wind):
+def run_independent_inverter_simulation(total_cap, n_inv, configs, alb, t_amb, wind):
     site_latitude = 23.58
     site_longitude = 58.38
     tz = 'Asia/Muscat'
@@ -75,91 +73,72 @@ def run_distributed_simulation(total_cap, n_inv, affected_block, extra_soiling, 
     albedo_factor = 1.0 + ((alb - 0.2) * 0.15)
     block_capacity = total_cap / n_inv
     
-    results_dict = {}
-    total_actual_power = np.zeros(len(times))
-    total_ideal_power = np.zeros(len(times))
+    simulation_results = {}
     
     for i in range(n_inv):
-        block_name = f"Inverter Block {i+1}"
+        inv_name = f"Inverter Block {i+1}"
+        cfg = configs[inv_name]
+        
         base_power = (ghi / peak_ghi) * block_capacity * albedo_factor
         base_power = base_power.clip(lower=0)
-        ideal_block_power = base_power * temp_factor
+        ideal_power = base_power * temp_factor
         
-        # تطبيق فقدان الغبار الخاص بكل محول (سلاسل موزعة)
-        block_soiling = base_soil + (extra_soiling if block_name == affected_block else 0.0)
-        block_degradation = min(100.0, block_soiling + (tilt_err * 0.5))
-        actual_factor = max(0.0, 1.0 - (block_degradation / 100.0))
-        actual_block_power = ideal_block_power * actual_factor
+        total_degradation = cfg['soiling'] + (cfg['tilt_error'] * 0.5)
+        actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
+        actual_power = ideal_power * actual_factor
         
-        results_dict[f'{block_name} (الفعلي)'] = actual_block_power
-        total_actual_power += actual_block_power
-        total_ideal_power += ideal_block_power
+        simulation_results[inv_name] = pd.DataFrame({
+            'التوأم الرقمي (المرجع المثالي)': ideal_power,
+            'الواقع التشغيلي (الفعلي للمحول)': actual_power
+        }, index=times)
+        
+    return simulation_results
 
-    results_dict['إجمالي الإنتاج المثالي'] = total_ideal_power
-    results_dict['إجمالي الإنتاج الفعلي للمحطة'] = total_actual_power
+inverter_data = run_independent_inverter_simulation(total_capacity, num_inverters, inverter_configs, albedo, live_temp, live_wind)
+
+st.subheader("📊 الرسوم البيانية للتوأم الرقمي المستقل لكل محول طاقة")
+
+total_plant_loss_kwh = 0
+
+for inv_name, df_block in inverter_data.items():
+    st.markdown(f"**🔹 مسار أداء وتحليلات {inv_name}**")
     
-    return pd.DataFrame(results_dict, index=times)
+    ideal_sum = df_block['التوأم الرقمي (المرجع المثالي)'].sum()
+    actual_sum = df_block['الواقع التشغيلي (الفعلي للمحول)'].sum()
+    block_loss = ideal_sum - actual_sum
+    total_plant_loss_kwh += block_loss
+    block_financial_loss = block_loss * tariff
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric(f"فقد الطاقة المفقودة ({inv_name})", f"{block_loss:.2f} kWh")
+    col2.metric(f"الخسارة المالية ({inv_name})", f"{block_financial_loss:.3f} ر.ع")
+    col3.metric(f"الإعدادات النشطة", f"غبار: {inverter_configs[inv_name]['soiling']}% | ميل: {inverter_configs[inv_name]['tilt_error']}°")
+    
+    # رسوم بيانية منفصلة ومستقلة لكل محول تحتوي على التوأم الرقمي الخاص به
+    st.line_chart(df_block)
+    st.markdown("---")
 
-df_results = run_distributed_simulation(total_capacity, num_inverters, affected_inverter, localized_soiling_extra, base_soiling, albedo, tilt_error, live_temp, live_wind)
+total_plant_financial_loss = total_plant_loss_kwh * tariff
 
-ideal_total = df_results['إجمالي الإنتاج المثالي'].sum()
-actual_total = df_results['إجمالي الإنتاج الفعلي للمحطة'].sum()
-loss_kwh = ideal_total - actual_total
-daily_financial_loss = loss_kwh * tariff
-accumulated_loss = daily_financial_loss * days_since_cleaning
-
-# حساب نافذة الصيانة التنبؤية
-temp_accumulated = accumulated_loss
-simulated_days_ahead = 0
-while temp_accumulated < cleaning_cost and simulated_days_ahead < 60:
-    simulated_days_ahead += 1
-    future_loss_kwh = loss_kwh * (1.0 + (simulated_days_ahead * 0.02))
-    temp_accumulated += future_loss_kwh * tariff
-
-optimal_cleaning_window = days_since_cleaning + simulated_days_ahead
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("إجمالي الفقد اليومي للمحطة", f"{loss_kwh:.2f} kWh")
-col2.metric("الخسارة المالية اليومية", f"{daily_financial_loss:.3f} ر.ع")
-col3.metric("المحول الأكثر تأثراً", affected_inverter)
-col4.metric("نافذة الصيانة المثلى", f"بعد {optimal_cleaning_window} يوماً")
-
-st.markdown("---")
-
-if accumulated_loss >= cleaning_cost:
-    st.error(f"🚨 **إنذار تشغيلي حرج للطبولوجيا الموزعة:** الخسائر المتراكمة ({accumulated_loss:.2f} ر.ع) في **{affected_inverter}** والسلاسل المرتبطة به تجاوزت تكلفة الصيانة. **يُطلب تحريك فريق الصيانة الفورية لمعالجة الخلل الموضعي.**")
-else:
-    st.success(f"✅ **استقرار أداء المحولات:** توزيع الأحمال ضمن النطاق المقبول. المحول المحدّد ({affected_inverter}) يسجل ضغطاً إضافياً بسبب الترسبات الموضعية ولكن دون تجاوز عتبة الجدوى بعد.")
-
-st.subheader("مقارنة أداء المحولات الموزعة (Inverter Blocks)")
-# عرض منحنيات المحولات الفردية للإدارة الهندسية
-inverter_columns = [f"Inverter Block {i+1} (الفعلي)" for i in range(num_inverters)]
-st.line_chart(df_results[inverter_columns + ['إجمالي الإنتاج المثالي', 'إجمالي الإنتاج الفعلي للمحطة']])
-
-st.subheader("🤖 تقرير تحليل البنية الموزعة والأداء المؤسسي (Interactions API & Gemini 3.6)")
+st.subheader("🤖 تقرير تحليل الأداء المؤسسي الشامل (Gemini 3.6)")
 
 if not gemini_api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي المؤسسي.")
+    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
-    if st.button("توليد تقرير تشخيص أداء المحولات والسلاسل الموزعة"):
-        with st.spinner("الوكيل الذكي يحلل سلوك الكتل الكهربائية الفردية وأثر الاختلاف الموضعي للأتربة..."):
+    if st.button("توليد التقرير التحليلي الموحد للمحولات المستقلة"):
+        with st.spinner("الوكيل الذكي يحلل سلوك الكتل التشغيلية المستقلة..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
-                أنت مدير هندسة أصول الطاقة المتجددة وخبير تشغيل المحطات الكبرى.
-                بيانات الطبولوجيا الموزعة للمحطة:
-                - إجمالي القدرة: {total_capacity} kW موزعة على {num_inverters} محولات (Inverters).
-                - المححول الذي يعاني من خلل موضعي أو ترسبات إضافية: {affected_inverter} بقيمة فقد إضافي {localized_soiling_extra}%.
-                - الفقد الكلي اليومي للطاقة: {loss_kwh:.2f} kWh.
-                - الخسارة المالية اليومية: {daily_financial_loss:.3f} ر.ع.
-                - الخسارة المتراكمة: {accumulated_loss:.2f} ر.ع مقابل تكلفة صيانة {cleaning_cost} ر.ع.
-                - ظروف مسقط الحية: حرارة {live_temp}°C، رياح {live_wind_kmh} km/h.
+                أنت مدير هندسة الأصول التشغيلية وخبير الطاقة الشمسية.
+                بيانات إعدادات المحولات المستقلة الحالية:
+                {inverter_configs}
+                - إجمالي فقد الطاقة للمحطة: {total_plant_loss_kwh:.2f} kWh
+                - إجمالي الخسارة المالية للمحطة: {total_plant_financial_loss:.3f} ر.ع
+                - ظروف مسقط: حرارة {live_temp}°C، رياح {live_wind_kmh} km/h.
                 
-                قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية للإدارة العليا في الشركة يتضمن:
-                1. تقييم أداء المحولات الموزعة وكيف أثر الخلل في ({affected_inverter}) على كفاءة الـ MPPT الشاملة للمحطة.
-                2. تحليل الجدوى الاقتصادية لصيانة السلسلة المتأثرة مقارنة بباقي الكتلة التشغيلية.
-                3. التوصيات الهندسية الميدانية لإصلاح الخلل الموضعي وتجنب الاختلافات غير المتجانسة بين سلاسل الألواح.
+                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يحلل الأداء المستقل لكل محول، ويقارن تأثير الفروقات الفردية في الإعدادات، ويقدم التوصيات الهندسية لإدارة الصيانة.
                 """
                 
                 interaction = client.interactions.create(
@@ -167,7 +146,7 @@ else:
                     input=prompt
                 )
                 
-                st.success("تم توليد التقرير المؤسسي للطبولوجيا الموزعة بنجاح!")
+                st.success("تم توليد التقرير بنجاح!")
                 st.markdown(interaction.output_text)
                 
             except Exception as e:
