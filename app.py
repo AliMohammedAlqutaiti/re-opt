@@ -6,10 +6,10 @@ import requests
 import pydeck as pdk
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Matrix", layout="wide")
+st.set_page_config(page_title="RE-OPT: Marmoul Real 3D Panels Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Solar Panels Matrix & Tech-Grid")
-st.markdown("التوأم الرقمي المؤسسي - عرض بصري ثلاثي الأبعاد لصفوف الألواح الشمسية الحية في صحراء مرمول (محافظة الوسطى).")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - Real 3D PV Panels & Thermal-Soil Mapping")
+st.markdown("التوأم الرقمي المؤسسي - العرض الواقعي ثلاثي الأبعاد لمصفوفات الألواح الشمسية في مرمول (الوسطى)، مع التلوين الديناميكي (أزرق للطبيعي، أحمر لتراكم الغبار الحرج).")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -19,24 +19,25 @@ def fetch_live_weather(lat, lon):
         if response.status_code == 200:
             data = response.json()
             current = data.get("current", {})
-            temp = current.get("temperature_2m", 36.0)
+            temp = current.get("temperature_2m", 37.0)
             wind = current.get("wind_speed_10m", 8.0)
             return temp, wind
     except Exception:
         pass
-    return 36.0, 8.0
+    return 37.0, 8.0
 
+# تثبيت الموقع بدقة في مرمول، محافظة الوسطى، عمان
 lat, lon = 18.15, 55.18
-site_name = "Marmoul Solar Park, Al Wusta (Oman)"
+site_name = "Marmoul Solar Farm, Al Wusta (Oman)"
 
 api_temp, api_wind = fetch_live_weather(lat, lon)
 
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
 total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
 total_capacity = total_capacity_mw * 1000 
-num_strings = st.sidebar.selectbox("عدد صفوف الألواح الرئيسية (Solar Rows Matrix)", [4, 8, 12, 16], index=1)
+num_blocks = st.sidebar.selectbox("عدد محولات الطاقة الرئيسية (Inverter Blocks)", [2, 4, 6, 8], index=1)
 
-scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA الصحراوية", value=True)
+scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA", value=True)
 
 if scada_mode:
     live_temp = api_temp
@@ -47,12 +48,11 @@ else:
     live_wind = live_wind_kmh / 3.6
 
 st.sidebar.subheader("محاكاة العواصف الرملية في صحراء الوسطى")
-dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية في مرمول", value=False)
-storm_soiling_penalty = st.sidebar.slider("معامل الفقد الإضافي للرمال (%)", min_value=5.0, max_value=50.0, value=20.0, step=2.5) if dust_storm_active else 0.0
+dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة", value=False)
+storm_soiling_penalty = st.sidebar.slider("معامل الغبار الإضافي (%)", min_value=5.0, max_value=50.0, value=18.0, step=2.5) if dust_storm_active else 0.0
 
-st.sidebar.subheader("تخصيص الألواح وزوايا الميل (PV Module Specs)")
-technology_type = st.sidebar.selectbox("نوع تكنولوجيا الألواح", ["ثنائية الوجه (Bifacial Glass-Glass)", "أحادية الوجه (Mono-facial PERC)", "هجين صحراوي"])
-panel_wattage = st.sidebar.selectbox("قدرة اللوحة الواحدة (Watt)", [550, 600, 650, 700], index=2)
+st.sidebar.subheader("تخصيص الألواح وزوايا الميل")
+technology_type = st.sidebar.selectbox("نوع تكنولوجيا الألواح", ["ثنائية الوجه (Bifacial Glass-Glass)", "أحادية الوجه (Mono-facial PERC)"])
 albedo = st.sidebar.slider("معامل انعكاس رمال الوسطى (Albedo)", min_value=0.2, max_value=0.7, value=0.45, step=0.05)
 bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه (%)", min_value=65.0, max_value=85.0, value=75.0, step=5.0) / 100.0
 
@@ -63,18 +63,18 @@ total_robots = st.sidebar.number_input("عدد روبوتات التنظيف ا�
 initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي للروبوتات (ر.ع)", min_value=500000.0, max_value=6000000.0, value=1500000.0, step=50000.0)
 daily_robot_depreciation = st.sidebar.number_input("إهلاك الصيانة اليومي", min_value=10.0, max_value=600.0, value=55.0, step=5.0)
 
-st.sidebar.subheader("التحكم المستقل لصفوف الألواح (String/Table Control)")
-string_configs = {}
-for i in range(num_strings):
-    str_name = f"Solar Row {i+1}"
-    with st.sidebar.expander(f"إعدادات صف الألواح {str_name}", expanded=(i==0)):
-        base_s = 3.0 + (i * 1.2)
-        str_soiling = st.slider(f"نسبة الغبار والرمال (%) - {str_name}", min_value=0.0, max_value=45.0, value=float(base_s + storm_soiling_penalty), step=0.5, key=f"soil_{i}")
-        str_tilt = st.slider(f"زاوية ميل الصف (Tilt °) - {str_name}", min_value=5.0, max_value=45.0, value=float(22.0), step=1.0, key=f"tilt_{i}")
-        string_configs[str_name] = {'soiling': str_soiling, 'tilt': str_tilt}
+st.sidebar.subheader("التحكم المستقل لمحولات الطاقة (Inverter Blocks)")
+inverter_configs = {}
+for i in range(num_blocks):
+    inv_name = f"Inverter Block {i+1}"
+    with st.sidebar.expander(f"إعدادات {inv_name}", expanded=(i==0)):
+        base_s = 3.0 + (i * 2.0)
+        inv_soiling = st.slider(f"نسبة الغبار والترسبات (%) - {inv_name}", min_value=0.0, max_value=45.0, value=float(base_s + storm_soiling_penalty), step=0.5, key=f"soil_{i}")
+        inv_tilt = st.slider(f"زاوية ميل الألواح (Tilt °) - {inv_name}", min_value=5.0, max_value=45.0, value=float(22.0), step=1.0, key=f"tilt_{i}")
+        inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt': inv_tilt}
 
 @st.cache_data
-def run_marmoul_simulation(latitude, longitude, total_cap, n_str, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
+def run_marmoul_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
     tz = 'Asia/Muscat'
     times = pd.date_range('2026-06-01 06:00:00', '2026-06-01 18:00:00', freq='h', tz=tz)
     location = pvlib.location.Location(latitude, longitude, tz=tz)
@@ -89,240 +89,205 @@ def run_marmoul_simulation(latitude, longitude, total_cap, n_str, configs, tech_
     temp_factor = 1.0 + temp_coeff * (cell_temp - 25.0)
     temp_factor = temp_factor.clip(lower=0.5)
     
-    string_capacity = total_cap / n_str
+    block_capacity = total_cap / n_inv
     
     simulation_results = {}
-    total_mono_actual = np.zeros(len(times))
-    total_bif_actual = np.zeros(len(times))
     total_actual = np.zeros(len(times))
+    total_ideal = np.zeros(len(times))
     
-    for i in range(n_str):
-        str_name = f"Solar Row {i+1}"
-        cfg = configs[str_name]
+    for i in range(n_inv):
+        inv_name = f"Inverter Block {i+1}"
+        cfg = configs[inv_name]
         
-        base_power = (ghi / peak_ghi) * string_capacity
+        base_power = (ghi / peak_ghi) * block_capacity
         base_power = base_power.clip(lower=0)
         
-        mono_base = base_power * temp_factor
-        bif_gain = 1.0 + (alb * bif_factor * 0.20)
-        bif_base = base_power * temp_factor * bif_gain
-        
-        tilt_penalty = abs(cfg['tilt'] - 22.0) * 0.2
-        total_degradation = cfg['soiling'] + tilt_penalty
+        ideal_power = base_power * temp_factor
+        if "ثنائية الوجه" in tech_mode:
+            bif_gain = 1.0 + (alb * bif_factor * 0.20)
+            ideal_power *= bif_gain
+            
+        total_degradation = cfg['soiling'] + (abs(cfg['tilt'] - 22.0) * 0.2)
         actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
         
-        mono_actual_power = mono_base * actual_factor
-        bif_actual_power = bif_base * actual_factor
-        
-        selected_actual = bif_actual_power if "ثنائية الوجه" in tech_mode or (tech_mode == "هجين صحراوي" and i % 2 == 0) else mono_actual_power
-        
         if is_live:
-            np.random.seed(200 + i)
-            noise = np.random.normal(1.0, 0.007, len(times))
-            scada_power = selected_actual * noise
+            np.random.seed(300 + i)
+            noise = np.random.normal(1.0, 0.006, len(times))
+            actual_power = ideal_power * actual_factor * noise
         else:
-            scada_power = selected_actual
+            actual_power = ideal_power * actual_factor
             
-        simulation_results[str_name] = pd.DataFrame({
-            'الواقع (أحادى الوجه)': mono_actual_power,
-            'الواقع (ثنائي الوجه)': bif_actual_power,
-            'قراءات السكادا (IoT)': scada_power
+        simulation_results[inv_name] = pd.DataFrame({
+            'النموذج المثالي': ideal_power,
+            'قراءات السكادا الفعلية': actual_power
         }, index=times)
         
-        total_mono_actual += mono_actual_power
-        total_bif_actual += bif_actual_power
-        total_actual += scada_power
+        total_ideal += ideal_power
+        total_actual += actual_power
 
     simulation_results['Plant_Total'] = pd.DataFrame({
-        'إجمالي الواقع (أحادى الوجه)': total_mono_actual,
-        'إجمالي الواقع (ثنائي الوجه)': total_bif_actual,
-        'إجمالي قراءات السكادا': total_actual
+        'إجمالي المثالي للمحطة': total_ideal,
+        'إجمالي قراءات السكادا الفعلية': total_actual
     }, index=times)
     
     return simulation_results
 
-sim_data = run_marmoul_simulation(lat, lon, total_capacity, num_strings, string_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
+sim_data = run_marmoul_simulation(lat, lon, total_capacity, num_blocks, inverter_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
 
 df_total = sim_data['Plant_Total']
-total_plant_loss_kwh = (df_total['إجمالي الواقع (ثنائي الوجه)'] - df_total['إجمالي قراءات السكادا']).sum()
+total_plant_loss_kwh = (df_total['إجمالي المثالي للمحطة'] - df_total['إجمالي قراءات السكادا الفعلية']).sum()
 daily_financial_loss = max(0.0, abs(total_plant_loss_kwh) * tariff)
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
-annual_generation_mwh = (df_total['إجمالي قراءات السكادا'].sum() * 365) / 1000.0
+annual_generation_mwh = (df_total['إجمالي قراءات السكادا الفعلية'].sum() * 365) / 1000.0
 plant_capex = total_capacity_mw * 330000.0 
 total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciation * 365 * 25)
 total_lifetime_generation_mwh = annual_generation_mwh * 25
 lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📈 التوأم الرقمي لمرمول", 
-    "🔍 التشخيص الذكي للأعطال", 
-    "🌐 مصفوفة الألواح ثلاثية الأبعاد (3D Solar Matrix)", 
+    "📈 التوأم الرقمي لمحطة مرمول", 
+    "🔍 التشخيص الذكي (FDD)", 
+    "☀️ خريطة الألواح الحقيقية ثلاثية الأبعاد (3D PV Panels View)", 
     "💰 الاقتصاديات و LCOE", 
     "📋 أوامر الشغل الآلية"
 ])
 
 with tab1:
     if dust_storm_active:
-        st.error("🚨 **تحذير طارئ في مرمول:** عاصفة رملية قوية تهب حالياً عبر سهل الوسطى. تم تفعيل استجابة الروبوتات الطارئة.")
+        st.error("🚨 **تحذير طارئ في مرمول:** عاصفة رملية تؤثر على حقول الطاقة بالوسطى وتم تفعيل طوارئ الروبوتات.")
     
-    st.subheader(f"📈 الإنتاجية الفعلية لمحطة مرمول الصحراوية ({technology_type})")
+    st.subheader(f"📈 إنتاجية المحطة الفعلية ({site_name})")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
     c2.metric("الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
-    c3.metric("قدرة اللوحة الواحدة", f"{panel_wattage} W")
-    c4.metric("حالة الرمال", "عاصفة نشطة" if dust_storm_active else "مستقرة آلياً")
+    c3.metric("تعرفة الكهرباء", f"{tariff:.3f} / kWh")
+    c4.metric("حالة الموقع", "عاصفة نشطة" if dust_storm_active else "مستقر آلياً")
 
     st.markdown("---")
     st.line_chart(df_total)
 
 with tab2:
-    st.subheader("🔍 خوارزميات التشخيص والكشف عن الأعطال (FDD) لصفوف مرمول")
+    st.subheader("🔍 خوارزميات الكشف عن الأعطال وتراكم الغبار (FDD)")
     fdd_summary = []
-    for str_name, df_block in sim_data.items():
-        if str_name == 'Plant_Total':
+    for inv_name, df_block in sim_data.items():
+        if inv_name == 'Plant_Total':
             continue
         
-        ideal_sum = df_block['الواقع (ثنائي الوجه)'].sum()
-        actual_sum = df_block['قراءات السكادا (IoT)'].sum()
+        ideal_sum = df_block['النموذج المثالي'].sum()
+        actual_sum = df_block['قراءات السكادا الفعلية'].sum()
         deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
         
-        if deviation_pct > 10.0 or dust_storm_active:
-            status = "🚨 تنبيه حرج: تراكم كثيف للرمال الصحراوية"
-        elif deviation_pct > 4.0:
-            status = "⚠️ تنبيه متوسط: انحراف طفيف في الصف"
+        if deviation_pct > 12.0 or dust_storm_active:
+            status = "🚨 تنبيه حرج: ترسبات رمال عالية (مظللة بالأحمر على الخريطة)"
+        elif deviation_pct > 5.0:
+            status = "⚠️ تنبيه متوسط: انحراف في أداء المحول"
         else:
-            status = "✅ أداء الصف طبيعي وممتاز"
+            status = "✅ أداء طبيعي ومستقر (باللون الأزرق)"
             
         fdd_summary.append({
-            'صف الألواح (Solar Row)': str_name,
-            'نسبة الانحراف (%)': f"{deviation_pct:.2f}%",
-            'حالة التشخيص': status
+            'المحول (Inverter Block)': inv_name,
+            'نسبة الانحراف الفعلي (%)': f"{deviation_pct:.2f}%",
+            'الحالة التشخيصية': status
         })
         
-        with st.expander(f"تفاصيل صف {str_name} (الانحراف: {deviation_pct:.2f}%)"):
+        with st.expander(f"تقرير تشخيص {inv_name} (الانحراف: {deviation_pct:.2f}%)"):
             st.write(f"الحالة: {status}")
             st.line_chart(df_block)
 
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("🌐 مصفوفة الألواح ثلاثية الأبعاد وخطوط شبكة الطاقة (3D Solar Panels Matrix)")
-    st.markdown("منظور بصري هندسي بحت يركز على **صفوف الألواح الشمسية** كأعمدة متصلة ببعضها بشبكة تقنية (بدون خريطة جغرافية للخارج)، مع التحكم بزوايا الميل ونسب الرمال الحية:")
+    st.subheader("☀️ الخريطة الواقعية ثلاثية الأبعاد لمصفوفات الألواح الشمسية في مرمول")
+    st.markdown("عرض واقعي ثلاثي الأبعاد لكتل ومصفوفات الألواح الفعلية فوق موقع مرمول بمحافظة الوسطى؛ **المحولات السليمة تظهر باللون الأزرق، بينما المحولات التي تعاني من ارتفاع نسبة الغبار والرمال تظهر مظللة باللون الأحمر الفاقع**.")
 
-    # تصميم مصفوفة هندسية بحتة لصفوف الألواح (بدون خلفية خريطة العالم)
-    matrix_panels = []
-    matrix_lines = []
-    
-    rows_grid = int(np.sqrt(num_strings))
-    if rows_grid < 2: 
-        rows_grid = 2
-    cols_grid = int(np.ceil(num_strings / rows_grid))
-
-    idx = 0
-    for r in range(rows_grid):
-        for c in range(cols_grid):
-            if idx >= num_strings:
-                break
-            str_name = f"Solar Row {idx+1}"
-            cfg = string_configs[str_name]
+    # تجهيز إحداثيات مصفوفات الألواح الحقيقية في الموقع الصحيح لمرمول (الوسطى)
+    panels_3d_data = []
+    for i in range(num_blocks):
+        inv_name = f"Inverter Block {i+1}"
+        cfg = inverter_configs[inv_name]
+        soiling = cfg['soiling']
+        tilt = cfg['tilt']
+        
+        # توزيع دقيق للألواح حول إحداثيات مرمول الحقيقية (lat: 18.15, lon: 55.18)
+        block_lat = lat + (i * 0.008) - (num_blocks * 0.002)
+        block_lon = lon + ((i % 2) * 0.012) - 0.006
+        
+        # التلوين الديناميكي: أحمر للمتسخ/العالي الغبار، وأزرق للألواح السليمة النظيفة
+        if soiling > 12.0 or dust_storm_active:
+            block_color = [255, 30, 30, 230] # أحمر فاقع للتنبيه والحالة الحرجة
+            status_label = "🚨 تلوث رملي حرج (أحمر)"
+        else:
+            block_color = [30, 144, 255, 230] # أزرق طبيعي للأداء الجيد
+            status_label = "✅ أداء سليم ونظيف (أزرق)"
             
-            # إحداثيات مصفوفة افتراضية داخل مساحة المحطة المعزولة
-            x_pos = float(c * 15.0)
-            y_pos = float(r * 15.0)
-            z_height = float(cfg['soiling'] * 1.5 + (cfg['tilt'] * 0.5))
-            
-            matrix_panels.append({
-                'row_name': str_name,
-                'x': x_pos,
-                'y': y_pos,
-                'z': z_height,
-                'soiling': cfg['soiling'],
-                'tilt': cfg['tilt'],
-                'wattage': panel_wattage,
-                'color': [30, 144, 255, 240] if cfg['soiling'] <= 18 else [255, 69, 0, 240] # أزرق للوضع الطبيعي أو برتقالي/حمر للرمال
-            })
-            
-            # ربط الصفوف ببعضها بخوط شبكية تقنية (Tech-Grid Lines)
-            if idx < num_strings - 1:
-                next_x = float(((idx+1) % cols_grid) * 15.0)
-                next_y = float(((idx+1) // cols_grid) * 15.0)
-                matrix_lines.append({
-                    'x1': x_pos, 'y1': y_pos, 'z1': z_height,
-                    'x2': next_x, 'y2': next_y, 'z2': z_height
-                })
-            idx += 1
+        panels_3d_data.append({
+            'block_name': inv_name,
+            'lat': block_lat,
+            'lon': block_lon,
+            'soiling': soiling,
+            'tilt': tilt,
+            'status': status_label,
+            'elevation': float(soiling * 20.0 + 60.0), # ارتفاع مرئي يعكس حجم التأثير
+            'color': block_color
+        })
+        
+    df_panels_3d = pd.DataFrame(panels_3d_data)
 
-    df_matrix = pd.DataFrame(matrix_panels)
-    df_mat_lines = pd.DataFrame(matrix_lines)
-
-    # طبقة مصفوفة الألواح ثلاثية الأبعاد بدون خلفية خريطة
-    matrix_layer = pdk.Layer(
+    # طبقة بصرية ثلاثية الأبعاد لمصفوفات الألواح فوق خريطة مرمول الحقيقية
+    panels_layer = pdk.Layer(
         "ColumnLayer",
-        data=df_matrix,
-        get_position=["x", "y"],
-        get_elevation="z",
-        elevation_scale=4.0,
-        radius=3.5,
+        data=df_panels_3d,
+        get_position=["lon", "lat"],
+        get_elevation="elevation",
+        elevation_scale=12.0,
+        radius=250,
         get_fill_color="color",
         pickable=True,
         auto_highlight=True,
     )
 
-    # طبقة خطوط الربط الشبكي التقني بين الألواح
-    matrix_line_layer = pdk.Layer(
-        "LineLayer",
-        data=df_mat_lines,
-        get_source_position=["x1", "y1", "z1"],
-        get_target_position=["x2", "y2", "z2"],
-        get_color=[0, 255, 200, 180],
-        get_width=3
+    view_state_marmoul = pdk.ViewState(
+        latitude=lat,
+        longitude=lon,
+        zoom=12.5,
+        pitch=52.0,
+        bearing=20
     )
 
-    # عرض ثلاثي الأبعاد هندسي بحت مقفل على المصفوفة
-    view_state_matrix = pdk.ViewState(
-        latitude=0,
-        longitude=0,
-        zoom=3.5,
-        pitch=45.0,
-        bearing=15
-    )
-
-    r_matrix = pdk.Deck(
-        layers=[matrix_layer, matrix_line_layer],
-        initial_view_state=view_state_matrix,
-        map_style="", # تفريغ خريطة الخلفية تماماً لتصبح شاشة تقنية سوداء/داكنة مخصصة للألواح فقط
+    r_real_panels = pdk.Deck(
+        layers=[panels_layer],
+        initial_view_state=view_state_marmoul,
+        map_style="mapbox://styles/mapbox/satellite-v9", # خريطة قمر صناعي صحراوية حقيقية لمرمول
         tooltip={
-            "html": "<b>صف الألواح:</b> {row_name} <br/> <b>قدرة اللوحة:</b> {wattage}W <br/> <b>نسبة الغبار:</b> {soiling}% <br/> <b>زاوية الميل:</b> {tilt}°",
-            "style": {"backgroundColor": "#090d16", "color": "#00ffcc", "border": "1px solid #00ffcc"}
+            "html": "<b>المحول:</b> {block_name} <br/> <b>الحالة:</b> {status} <br/> <b>نسبة الغبار:</b> {soiling}% <br/> <b>زاوية الميل:</b> {tilt}°",
+            "style": {"backgroundColor": "#0f172a", "color": "#f8fafc", "border": "1px solid #38bdf8"}
         }
     )
 
-    st.pydeck_chart(r_matrix)
-    st.caption("💡 مصفوفة بصرية هندسية بحتة لصفوف الألواح وخطوط الربط الشبكي في مرمول بدون خريطة جغرافية للخارج.")
+    st.pydeck_chart(r_real_panels)
+    st.caption("💡 خريطة قمر صناعي حقيقية لصحراء مرمول تظهر مصفوفات الألواح وتلونها بالأحمر عند ارتفاع الترسبات الرملية وبالأزرق عندما تكون نظيفة.")
 
-    # جدول تفصيلي مرئي لصفوف الألواح
-    st.markdown("### 📊 جدول مواصفات صفوف الألواح في مرمول")
-    panel_table_data = []
-    for i in range(num_strings):
-        str_name = f"Solar Row {i+1}"
-        cfg = string_configs[str_name]
-        robots_assigned = int(total_robots / num_strings)
-        status_text = "🚨 اكتساح رملي - مسح روبوتي طارئ" if dust_storm_active else ("🔄 تنظيف جاف نشط" if i%2==0 else "🅿️ وضع الاستعداد")
+    # جدول الحالة المرئية للمحولات
+    st.markdown("### 📊 جدول الحالة المرئية لمحولات ومصفوفات مرمول")
+    table_view_data = []
+    for i in range(num_blocks):
+        inv_name = f"Inverter Block {i+1}"
+        cfg = inverter_configs[inv_name]
+        soiling = cfg['soiling']
+        status_text = "🚨 تلوث رملي عالي (مظلل أحمر)" if soiling > 12.0 else "✅ سليم ونظيف (أزرق)"
         
-        panel_table_data.append({
-            'صف الألواح': str_name,
-            'نوع التكنولوجيا': technology_type,
-            'قدرة اللوحة': f"{panel_wattage} W",
+        table_view_data.append({
+            'محول الطاقة': inv_name,
+            'نسبة الغبار (Soil)': f"{soiling}%",
             'زاوية الميل (Tilt)': f"{cfg['tilt']}°",
-            'نسبة الرمال (Soil)': f"{cfg['soiling']}%",
-            'الروبوتات المخصصة': robots_assigned,
-            'حالة التنظيف': status_text
+            'اللون الظاهري على الخريطة': status_text,
+            'الروبوتات المخصصة': int(total_robots / num_blocks)
         })
-    st.table(pd.DataFrame(panel_table_data))
+    st.table(pd.DataFrame(table_view_data))
 
 with tab4:
-    st.subheader("💰 التحليل المالي واقتصاديات أسطول روبوتات مرمول (LCOE & CAPEX)")
+    st.subheader("💰 التحليل المالي بعيد المدى واقتصاديات أسطول الروبوتات (LCOE & CAPEX)")
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
     f_col1.metric("استثمار الروبوتات", f"{initial_robot_capex:,.0f} ر.ع")
     f_col2.metric("إهلاك الصيانة اليومي", f"{daily_robot_depreciation:.2f} ر.ع")
@@ -332,32 +297,31 @@ with tab4:
     st.markdown("---")
     col_fin1, col_fin2 = st.columns(2)
     with col_fin1:
-        st.markdown("#### 📊 جدوى التنظيف الجاف في صحراء الوسطى")
-        st.write("- **تكلفة المياه:** 0.00 ر.ع (استنزاف المياه مستحيل في مرمول؛ التنظيف الجاف بالروبوتات هو الخيار التشغيلي الوحيد).")
+        st.markdown("#### 📊 جدوى التنظيف الجاف في مرمول")
+        st.write("- **تكلفة المياه:** 0.00 ر.ع (الاعتماد الكامل على الروبوتات الجافة حصراً دون هدر مائي).")
         st.write(f"- **تكلفة تشغيل الأسطول السنوية:** {(daily_robot_depreciation * 365):,.2f} ر.ع.")
     with col_fin2:
         st.markdown("#### 💡 العائد الاستثماري (ROI)")
         if net_robotic_roi > 0:
-            st.success(f"✅ الروبوتات توفر دخلاً صافياً قدره **{net_robotic_roi:,.2f} ر.ع يومياً** عبر منع تدهور إنتاجية الألواح بسبب رمال الوسطى.")
+            st.success(f"✅ الروبوتات توفر دخلاً صافياً قدره **{net_robotic_roi:,.2f} ر.ع يومياً** عبر حماية الألواح في صحراء الوسطى.")
         else:
-            st.warning("⚠️ يُوصى بزيادة تردد دورات المسح نظراً لشدة تراكم الرمال.")
+            st.warning("⚠️ يُوصى بزيادة تردد دورات المسح نظراً لشدة ترسبات الغبار.")
 
 with tab5:
     st.subheader("📋 توليد أوامر الشغل الآلية لموقع مرمول")
-    selected_row_wo = st.selectbox("اختر صف الألواح لإصدار أمر العمل", [f"Solar Row {i+1}" for i in range(num_strings)])
+    selected_block_wo = st.selectbox("اختر المحول لإصدار أمر العمل", [f"Inverter Block {i+1}" for i in range(num_blocks)])
     work_order_id = f"WO-MARMOUL-2026-{np.random.randint(1000, 9999)}"
     
     wo_payload = {
         "work_order_id": work_order_id,
         "facility": site_name,
-        "target_string": selected_row_wo,
-        "panel_type": technology_type,
-        "wattage": f"{panel_wattage}W",
-        "soil_percentage": string_configs[selected_row_wo]['soiling'],
-        "tilt_angle": string_configs[selected_row_wo]['tilt'],
-        "priority": "CRITICAL" if dust_storm_active or string_configs[selected_row_wo]['soiling'] > 20 else "NORMAL",
-        "assigned_robots": int(total_robots / num_strings),
-        "action_required": "Deploy dry-cleaning robot swarm for emergency glass surface sweep and string inspection."
+        "target_block": selected_block_wo,
+        "soil_percentage": inverter_configs[selected_block_wo]['soiling'],
+        "tilt_angle": inverter_configs[selected_block_wo]['tilt'],
+        "map_color_indicator": "RED (Critical Soil)" if inverter_configs[selected_block_wo]['soiling'] > 12.0 else "BLUE (Normal)",
+        "priority": "HIGH" if dust_storm_active or inverter_configs[selected_block_wo]['soiling'] > 12.0 else "NORMAL",
+        "assigned_robots": int(total_robots / num_blocks),
+        "action_required": "Deploy dry-cleaning robot swarm to targeted red-shaded panel blocks."
     }
 
     st.json(wo_payload)
@@ -371,7 +335,7 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل لموقع مرمول"):
-        with st.spinner("الوكيل الذكي يحلل بيانات صفوف الألواح، مصفوفة الثلاثية الأبعاد، وطوارئ صحراء الوسطى..."):
+        with st.spinner("الوكيل الذكي يحلل أداء المحولات، التلوين الديناميكي بالأحمر والأزرق، وطوارئ صحراء الوسطى..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 prompt = f"""
@@ -379,12 +343,11 @@ else:
                 بيانات المحطة:
                 - الموقع: {site_name} (محافظة الوسطى، عمان)
                 - القدرة الكلية: {total_capacity_mw} MW.
-                - نوع الألواح: {technology_type} بقدرة {panel_wattage}W.
                 - أسراب الروبوتات: {total_robots} روبوت تنظيف جاف.
                 - حالة العاصفة: {"نشطة" if dust_storm_active else "غير نشطة"}
                 - LCOE: {lcoe:.4f} / kWh.
                 
-                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح الهندسية في بيئة مرمول القاسية، أداء الروبوتات الجافة، وكفاءة زوايا الميل.
+                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح فوق خريطة مرمول، وتوزيع التنبيهات الحمراء (للغبار الحرج) والزرقاء (للأداء العادي).
                 """
                 interaction = client.interactions.create(model='gemini-3.6-flash', input=prompt)
                 st.success("تم توليد التقرير بنجاح!")
