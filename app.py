@@ -6,10 +6,10 @@ import requests
 import pydeck as pdk
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Marmoul Real 3D Panels Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Marmoul 3D Panels Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - Real 3D PV Panels & Thermal-Soil Mapping")
-st.markdown("التوأم الرقمي المؤسسي - العرض الواقعي ثلاثي الأبعاد لمصفوفات الألواح الشمسية في مرمول (الوسطى)، مع التلوين الديناميكي (أزرق للطبيعي، أحمر لتراكم الغبار الحرج).")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D PV Panels Matrix")
+st.markdown("التوأم الرقمي المؤسسي - العرض الواقعي ثلاثي الأبعاد لمصفوفات الألواح الشمسية في مرمول (الوسطى) مع التلوين الديناميكي (أزرق للطبيعي، أحمر لتراكم الرمال).")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -26,7 +26,6 @@ def fetch_live_weather(lat, lon):
         pass
     return 37.0, 8.0
 
-# تثبيت الموقع بدقة في مرمول، محافظة الوسطى، عمان
 lat, lon = 18.15, 55.18
 site_name = "Marmoul Solar Farm, Al Wusta (Oman)"
 
@@ -148,7 +147,7 @@ lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي لمحطة مرمول", 
     "🔍 التشخيص الذكي (FDD)", 
-    "☀️ خريطة الألواح الحقيقية ثلاثية الأبعاد (3D PV Panels View)", 
+    "☀️ خريطة الألواح الحقيقية ثلاثية الأبعاد (3D PV Panels)", 
     "💰 الاقتصاديات و LCOE", 
     "📋 أوامر الشغل الآلية"
 ])
@@ -179,7 +178,7 @@ with tab2:
         deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
         
         if deviation_pct > 12.0 or dust_storm_active:
-            status = "🚨 تنبيه حرج: ترسبات رمال عالية (مظللة بالأحمر على الخريطة)"
+            status = "🚨 تنبيه حرج: ترسبات رمال عالية (مظللة بالأحمر)"
         elif deviation_pct > 5.0:
             status = "⚠️ تنبيه متوسط: انحراف في أداء المحول"
         else:
@@ -198,78 +197,87 @@ with tab2:
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("☀️ الخريطة الواقعية ثلاثية الأبعاد لمصفوفات الألواح الشمسية في مرمول")
-    st.markdown("عرض واقعي ثلاثي الأبعاد لكتل ومصفوفات الألواح الفعلية فوق موقع مرمول بمحافظة الوسطى؛ **المحولات السليمة تظهر باللون الأزرق، بينما المحولات التي تعاني من ارتفاع نسبة الغبار والرمال تظهر مظللة باللون الأحمر الفاقع**.")
+    st.subheader("☀️ الخريطة الواقعية ثلاثية الأبعاد لمصفوفات الألواح الشمسية")
+    st.markdown("عرض هندسي ثلاثي الأبعاد يوضح **شكل الألواح المستطيلة المسطحة** (بدلاً من الأنابيب الدائرية) فوق موقع مرمول بمحافظة الوسطى؛ **الألواح السليمة تظهر باللون الأزرق، بينما الألواح المتسخة تعلوها طبقة حمراء لتحذير المشغلين**.")
 
-    # تجهيز إحداثيات مصفوفات الألواح الحقيقية في الموقع الصحيح لمرمول (الوسطى)
-    panels_3d_data = []
+    # بناء مضلعات مستطيلة دقيقة تمثل الألواح الشمسية (PolygonLayer)
+    polygons_data = []
     for i in range(num_blocks):
         inv_name = f"Inverter Block {i+1}"
         cfg = inverter_configs[inv_name]
         soiling = cfg['soiling']
         tilt = cfg['tilt']
         
-        # توزيع دقيق للألواح حول إحداثيات مرمول الحقيقية (lat: 18.15, lon: 55.18)
-        block_lat = lat + (i * 0.008) - (num_blocks * 0.002)
-        block_lon = lon + ((i % 2) * 0.012) - 0.006
+        c_lat = lat + (i * 0.005) - (num_blocks * 0.001)
+        c_lon = lon + ((i % 2) * 0.008) - 0.004
         
-        # التلوين الديناميكي: أحمر للمتسخ/العالي الغبار، وأزرق للألواح السليمة النظيفة
+        # تحديد أركان مستطيل اللوحة (Polygon Coordinates)
+        d_lat, d_lon = 0.002, 0.003
+        polygon_coords = [
+            [c_lon - d_lon, c_lat - d_lat],
+            [c_lon + d_lon, c_lat - d_lat],
+            [c_lon + d_lon, c_lat + d_lat],
+            [c_lon - d_lon, c_lat + d_lat]
+        ]
+        
+        # التلوين والتعديل حسب نسبة الغبار
         if soiling > 12.0 or dust_storm_active:
-            block_color = [255, 30, 30, 230] # أحمر فاقع للتنبيه والحالة الحرجة
+            poly_color = [255, 40, 40, 220]  # أحمر للألواح المتسخة والمحرجة
             status_label = "🚨 تلوث رملي حرج (أحمر)"
         else:
-            block_color = [30, 144, 255, 230] # أزرق طبيعي للأداء الجيد
-            status_label = "✅ أداء سليم ونظيف (أزرق)"
+            poly_color = [30, 144, 255, 220] # أزرق للألواح النظيفة
+            status_label = "✅ أداء سليم (أزرق)"
             
-        panels_3d_data.append({
+        polygons_data.append({
             'block_name': inv_name,
-            'lat': block_lat,
-            'lon': block_lon,
+            'polygon': polygon_coords,
+            'elevation': float(tilt * 10.0 + 20.0), # ارتفاع اللوحة بناءً على زاوية الميل
             'soiling': soiling,
             'tilt': tilt,
             'status': status_label,
-            'elevation': float(soiling * 20.0 + 60.0), # ارتفاع مرئي يعكس حجم التأثير
-            'color': block_color
+            'color': poly_color
         })
         
-    df_panels_3d = pd.DataFrame(panels_3d_data)
+    df_polygons = pd.DataFrame(polygons_data)
 
-    # طبقة بصرية ثلاثية الأبعاد لمصفوفات الألواح فوق خريطة مرمول الحقيقية
-    panels_layer = pdk.Layer(
-        "ColumnLayer",
-        data=df_panels_3d,
-        get_position=["lon", "lat"],
+    # استخدام PolygonLayer لرسم ألواح مسطحة ومستطيلة حقيقية
+    panel_polygon_layer = pdk.Layer(
+        "PolygonLayer",
+        data=df_polygons,
+        get_polygon="polygon",
         get_elevation="elevation",
-        elevation_scale=12.0,
-        radius=250,
+        elevation_scale=1.0,
         get_fill_color="color",
+        get_line_color=[255, 255, 255],
+        line_width_min_pixels=2,
+        extruded=True, # جعل الألواح مجسمة ثلاثية الأبعاد بارتفاع زاوية الميل
         pickable=True,
         auto_highlight=True,
     )
 
-    view_state_marmoul = pdk.ViewState(
+    view_state_panels = pdk.ViewState(
         latitude=lat,
         longitude=lon,
-        zoom=12.5,
-        pitch=52.0,
-        bearing=20
+        zoom=13.5,
+        pitch=55.0,
+        bearing=25
     )
 
-    r_real_panels = pdk.Deck(
-        layers=[panels_layer],
-        initial_view_state=view_state_marmoul,
-        map_style="mapbox://styles/mapbox/satellite-v9", # خريطة قمر صناعي صحراوية حقيقية لمرمول
+    r_panels_poly = pdk.Deck(
+        layers=[panel_polygon_layer],
+        initial_view_state=view_state_panels,
+        map_style="mapbox://styles/mapbox/satellite-v9",
         tooltip={
             "html": "<b>المحول:</b> {block_name} <br/> <b>الحالة:</b> {status} <br/> <b>نسبة الغبار:</b> {soiling}% <br/> <b>زاوية الميل:</b> {tilt}°",
             "style": {"backgroundColor": "#0f172a", "color": "#f8fafc", "border": "1px solid #38bdf8"}
         }
     )
 
-    st.pydeck_chart(r_real_panels)
-    st.caption("💡 خريطة قمر صناعي حقيقية لصحراء مرمول تظهر مصفوفات الألواح وتلونها بالأحمر عند ارتفاع الترسبات الرملية وبالأزرق عندما تكون نظيفة.")
+    st.pydeck_chart(r_panels_poly)
+    st.caption("💡 الخريطة تعرض الآن أشكال الألواح كمستطيلات مسطحة ومجسمة بزوايا الميل، وتتلون بالأحمر أو الأزرق بحسب نظافة الألواح.")
 
     # جدول الحالة المرئية للمحولات
-    st.markdown("### 📊 جدول الحالة المرئية لمحولات ومصفوفات مرمول")
+    st.markdown("### 📊 جدول الحالة المرئية لمصفوفات مرمول")
     table_view_data = []
     for i in range(num_blocks):
         inv_name = f"Inverter Block {i+1}"
@@ -335,7 +343,7 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل لموقع مرمول"):
-        with st.spinner("الوكيل الذكي يحلل أداء المحولات، التلوين الديناميكي بالأحمر والأزرق، وطوارئ صحراء الوسطى..."):
+        with st.spinner("الوكيل الذكي يحلل أداء الألواح المستطيلة ومصفوفات مرمول..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 prompt = f"""
@@ -347,7 +355,7 @@ else:
                 - حالة العاصفة: {"نشطة" if dust_storm_active else "غير نشطة"}
                 - LCOE: {lcoe:.4f} / kWh.
                 
-                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح فوق خريطة مرمول، وتوزيع التنبيهات الحمراء (للغبار الحرج) والزرقاء (للأداء العادي).
+                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح المستطيلة فوق خريطة مرمول، وتوزيع التنبيهات الحمراء (للغبار الحرج) والزرقاء (للأداء العادي).
                 """
                 interaction = client.interactions.create(model='gemini-3.6-flash', input=prompt)
                 st.success("تم توليد التقرير بنجاح!")
