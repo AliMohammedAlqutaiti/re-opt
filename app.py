@@ -36,17 +36,19 @@ live_temp = st.sidebar.number_input("درجة الحرارة المحيطة (°C
 live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=float(api_wind), step=0.5)
 live_wind = live_wind_kmh / 3.6
 
-st.sidebar.subheader("عوامل الأداء والتشخيص المتقدمة")
-# تحويل مدخلات الأيام إلى نسبة فقدان غير خطية للغبار
+st.sidebar.subheader("عوامل الأداء والتشغيل المتقدمة")
 days_since_cleaning = st.sidebar.slider("الأيام منذ آخر تنظيف للألواح", min_value=1, max_value=90, value=15, step=1)
-# معادلة تراكم الغبار غير الخطية (Asymptotic Soiling Curve)
-max_soiling_limit = 40.0 # أقصى نسبة فقد ممكنة بدون تنظيف
+max_soiling_limit = 40.0
 soiling_loss = max_soiling_limit * (1.0 - np.exp(-0.04 * days_since_cleaning))
 
 albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.35, step=0.05)
 tilt_error = st.sidebar.slider("خطأ زاوية الميل (Degrees °)", min_value=0.0, max_value=90.0, value=5.0, step=1.0)
 
 tariff = st.sidebar.number_input("تعرفة الكهرباء (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
+
+# إعدادات الجدوى الاقتصادية للتنظيف
+st.sidebar.subheader("إعدادات تكلفة الصيانة والتنظيف")
+cleaning_cost = st.sidebar.number_input("تكلفة عملية التنظيف الواحدة (ر.ع)", min_value=1.0, max_value=100.0, value=15.0, step=1.0)
 
 @st.cache_data
 def run_hybrid_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
@@ -90,12 +92,24 @@ df_results = run_hybrid_simulation(rated_capacity, soiling_loss, albedo, tilt_er
 loss_kwh = (df_results['التوأم الرقمي (مع طقس مسقط والحرارة)'] - df_results['الواقع التشغيلي (مع الغبار غير الخطي)']).sum()
 financial_loss = loss_kwh * tariff
 
-col1, col2, col3 = st.columns(3)
+# حساب الخسائر المتراكمة خلال فترة الأيام منذ آخر تنظيف وتحديد جدوى الصيانة
+accumulated_loss_period = financial_loss * days_since_cleaning
+roi_exceeded = accumulated_loss_period >= cleaning_cost
+
+col1, col2, col3, col4 = st.columns(4)
 col1.metric("إجمالي الطاقة المفقودة اليوم", f"{loss_kwh:.2f} kWh")
-col2.metric("الخسارة المالية التقديرية", f"{financial_loss:.3f} ر.ع")
-col3.metric("نسبة فقدان الغبار المحسوبة", f"{soiling_loss:.1f}% (بعد {days_since_cleaning} يوم)")
+col2.metric("الخسارة المالية اليومية", f"{financial_loss:.3f} ر.ع")
+col3.metric("فقدان الغبار الحالي", f"{soiling_loss:.1f}% ({days_since_cleaning} يوم)")
+col4.metric("الخسارة المتراكمة للفترة", f"{accumulated_loss_period:.2f} ر.ع")
 
 st.markdown("---")
+
+# تنبيه تفاعلي لحالة الجدوى الاقتصادية للتنظيف
+if roi_exceeded:
+    st.error(f"🚨 **تنبيه حرج للجدوى الاقتصادية:** الخسائر المالية المتراكمة ({accumulated_loss_period:.2f} ر.ع) تجاوزت تكلفة التنظيف ({cleaning_cost} ر.ع). **يُوصى بإجراء عملية التنظيف فوراكس لتعظيم العائد (ROI).**")
+else:
+    st.success(f"✅ **الحالة التشغيلية سليمة:** الخسائر المتراكمة ({accumulated_loss_period:.2f} ر.ع) لم تتجاوز حد تكلفة التنظيف بعد ({cleaning_cost} ر.ع). الصيانة المؤجلة مجدية اقتصادياً حالياً.")
+
 st.subheader("مقارنة الأداء: التوأم الهجين مقابل الواقع التشغيلي بالتراكم غير الخطي للغبار")
 st.line_chart(df_results)
 
@@ -104,23 +118,28 @@ st.subheader("🤖 تقرير تحليل الوكيل الذكي (Interactions A
 if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي.")
 else:
-    if st.button("توليد التقرير التحليلي غير الخطي"):
-        with st.spinner("الوكيل الذكي يحلل معدل تراكم الغبار والأثر المالي..."):
+    if st.button("توليد التقرير التحليلي للجدوى الاقتصادية"):
+        with st.spinner("الوكيل الذكي يحلل جدوى الصيانة والأثر المالي للتنظيف..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
-                prompt = f"""
-                أنت وكيل ذكاء اصطناعي خبير في هندسة الطاقة الشمسية.
-                بيانات المحاكاة الحالية:
-                - الأيام منذ آخر تنظيف: {days_since_cleaning} يوماً
-                - نسبة فقدان الغبار المحسوبة غير خطياً: {soiling_loss:.1f}%
-                - درجة الحرارة المحيطة: {live_temp}°C | سرعة الرياح: {live_wind_kmh} km/h
-                - قدرة المحطة: {rated_capacity} kW
-                - الطاقة المفقودة اليوم: {loss_kwh:.2f} kWh
-                - الخسارة المالية: {financial_loss:.3f} ريال عماني
-                - التعرفة: {tariff} ر.ع/kWh
+                status_text = "تجاوزت الخسائر تكلفة الصيانة ويجب التنظيف فوراً" if roi_exceeded else "لم تصل الخسائر لحد الجدوى بعد"
                 
-                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يوضح تأثير تراكم الغبار غير الخطي عبر الزمن في بيئة مسقط، وتقييماً للأثر المالي، وتوصية بموعد التنظيف الأمثل.
+                prompt = f"""
+                أنت وكيل ذكاء اصطناعي خبير في هندسة وإدارة أصول الطاقة الشمسية التشغيلية.
+                بيانات الجدوى الاقتصادية الحالية للمحطة:
+                - الأيام منذ آخر تنظيف: {days_since_cleaning} يوماً
+                - نسبة فقدان الغبار غير الخطي: {soiling_loss:.1f}%
+                - الخسارة المالية اليومية: {financial_loss:.3f} ر.ع
+                - الخسارة المالية المتراكمة للفترة: {accumulated_loss_period:.2f} ر.ع
+                - تكلفة عملية التنظيف: {cleaning_cost} ر.ع
+                - حالة الجدوى (ROI Status): {status_text}
+                - درجة الحرارة الحية: {live_temp}°C | الرياح: {live_wind_kmh} km/h
+                
+                قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية يتضمن:
+                1. تقييم الأثر المالي لتراكم الأتربة في أجواء مسقط خلال الفترة الحالية.
+                2. تحليل عتبة الجدوى الاقتصادية للتنظيف وهل حان الوقت الفعلي لجدولة فريق الصيانة بناءً على الأرقام أعلاه.
+                3. توصيات إدارية وهندسية واضحة لصناع القرار في إدارة الأصول.
                 """
                 
                 interaction = client.interactions.create(
