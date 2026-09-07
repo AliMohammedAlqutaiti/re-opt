@@ -20,22 +20,22 @@ def run_simulation(capacity, soiling_pct):
     site_latitude = 23.58
     site_longitude = 58.38
     tz = 'Asia/Muscat'
-
+    
     times = pd.date_range('2026-06-01 06:00:00', '2026-06-01 18:00:00', freq='h', tz=tz)
     clearsky = pvlib.location.Location(site_latitude, site_longitude, tz).get_clearsky(times)
-
+    
     peak_ghi = 1000.0
     expected_power = (clearsky['ghi'] / peak_ghi) * capacity
     expected_power = expected_power.clip(lower=0)
-
+    
     actual_factor = 1.0 - (soiling_pct / 100.0)
     actual_power = expected_power * actual_factor
-
+    
     results = pd.DataFrame({
         'التوأم الرقمي (المثالي)': expected_power,
         'الواقع (الحساسات الفعلية)': actual_power
     }, index=times)
-
+    
     return results
 
 df_results = run_simulation(rated_capacity, soiling_loss)
@@ -62,7 +62,7 @@ else:
         with st.spinner("الوكيل الذكي يقوم بتحليل البيانات وإعداد التقرير..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
-
+                
                 prompt = f"""
                 أنت وكيل ذكاء اصطناعي خبير في تشخيص محطات الطاقة الشمسية.
                 بيانات المحطة الحالية:
@@ -71,20 +71,20 @@ else:
                 - الطاقة المفقودة اليوم: {loss_kwh:.2f} kWh
                 - الخسارة المالية اليومية: {financial_loss:.3f} ريال عماني
                 - تعرفة الكهرباء: {tariff} ر.ع/kWh
-
+                
                 قدم تقريراً تشغيلياً واحترافياً باللغة العربية يتضمن:
                 1. تحليل السبب الجذري.
                 2. التقييم المالي والأثر الاقتصادي.
                 3. توصية تنفيذية واضحة لصناع القرار متى يتم جدولة التنظيف.
                 """
-
+                
                 response = client.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.5-flash',
                     contents=prompt
                 )
-
+                
                 st.success("تم توليد التقرير بنجاح!")
                 st.markdown(response.text)
-
+                
             except Exception as e:
                 st.error(f"حدث خطأ أثناء الاتصال: {e}")
