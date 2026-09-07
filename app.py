@@ -6,10 +6,10 @@ import requests
 import pydeck as pdk
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Matrix", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Desert Solar Farm (Al Wusta) - 3D Digital Twin")
-st.markdown("التوأم الرقمي المؤسسي - محطة طاقة شمسية بقطاع مرمول (محافظة الوسطى) مع عرض مرئي ثلاثي الأبعاد لصفوف الألواح وزوايا الميل وتراكم الغبار.")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Solar Panels Matrix & Tech-Grid")
+st.markdown("التوأم الرقمي المؤسسي - عرض بصري ثلاثي الأبعاد لصفوف الألواح الشمسية الحية في صحراء مرمول (محافظة الوسطى).")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -19,16 +19,14 @@ def fetch_live_weather(lat, lon):
         if response.status_code == 200:
             data = response.json()
             current = data.get("current", {})
-            temp = current.get("temperature_2m", 35.0)
-            wind = current.get("wind_speed_10m", 7.5)
+            temp = current.get("temperature_2m", 36.0)
+            wind = current.get("wind_speed_10m", 8.0)
             return temp, wind
     except Exception:
         pass
-    return 35.0, 7.5
+    return 36.0, 8.0
 
-# تعيين الموقع الجغرافي الافتراضي لمرمول، محافظة الوسطى (عمان)
-st.sidebar.header("إعدادات الموقع الجغرافي (مرمول، الوسطى)")
-lat, lon = 18.15, 55.18  # إحداثيات مرمول التقريبية في الوسطى
+lat, lon = 18.15, 55.18
 site_name = "Marmoul Solar Park, Al Wusta (Oman)"
 
 api_temp, api_wind = fetch_live_weather(lat, lon)
@@ -36,7 +34,7 @@ api_temp, api_wind = fetch_live_weather(lat, lon)
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
 total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
 total_capacity = total_capacity_mw * 1000 
-num_strings = st.sidebar.selectbox("عدد صفوف وأسراب الألواح الرئيسية (Solar Strings)", [4, 8, 12, 16], index=1)
+num_strings = st.sidebar.selectbox("عدد صفوف الألواح الرئيسية (Solar Rows Matrix)", [4, 8, 12, 16], index=1)
 
 scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA الصحراوية", value=True)
 
@@ -85,7 +83,7 @@ def run_marmoul_simulation(latitude, longitude, total_cap, n_str, configs, tech_
     peak_ghi = 1000.0
     ghi = clearsky['ghi']
     
-    noct = 47.0 # حرارة أعلى مناسبة لصحراء الوسطى
+    noct = 47.0
     cell_temp = t_amb + (ghi / 800.0) * (noct - 20.0) * (9.5 / (5.7 + 3.8 * wind))
     temp_coeff = -0.0034
     temp_factor = 1.0 + temp_coeff * (cell_temp - 25.0)
@@ -159,7 +157,7 @@ lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي لمرمول", 
     "🔍 التشخيص الذكي للأعطال", 
-    "🗺️ الخريطة التفاعلية ثلاثية الأبعاد لألواح مرمول", 
+    "🌐 مصفوفة الألواح ثلاثية الأبعاد (3D Solar Matrix)", 
     "💰 الاقتصاديات و LCOE", 
     "📋 أوامر الشغل الآلية"
 ])
@@ -209,67 +207,102 @@ with tab2:
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("🗺️ الخريطة المرئية ثلاثية الأبعاد لمصفوفات الألواح في مرمول (3D Panel GIS)")
-    st.markdown("عرض مرئي تفصيلي يتيح لك رؤية **صفوف الألواح الشمسية الفعلية** في صحراء الوسطى؛ حيث يرتفع كل صف ويتغير لونه بناءً على **نسبة ترسب الرمال (Soil %)** وزاوية ميل الألواح.")
+    st.subheader("🌐 مصفوفة الألواح ثلاثية الأبعاد وخطوط شبكة الطاقة (3D Solar Panels Matrix)")
+    st.markdown("منظور بصري هندسي بحت يركز على **صفوف الألواح الشمسية** كأعمدة متصلة ببعضها بشبكة تقنية (بدون خريطة جغرافية للخارج)، مع التحكم بزوايا الميل ونسب الرمال الحية:")
 
-    # تجهيز إحداثيات مرئية لصفوف الألواح في مرمول
-    map_panels = []
-    for i in range(num_strings):
-        str_name = f"Row {i+1}"
-        cfg = string_configs[f"Solar Row {i+1}"]
-        
-        # توزيع صفوف الألواح بشكل شبكي مرئي ثلاثي الأبعاد
-        panel_lat = lat + (i * 0.003) - (num_strings * 0.001)
-        panel_lon = lon + ((i % 2) * 0.008) - 0.004
-        
-        map_panels.append({
-            'row_name': str_name,
-            'lat': panel_lat,
-            'lon': panel_lon,
-            'soiling': cfg['soiling'],
-            'tilt': cfg['tilt'],
-            'wattage': panel_wattage,
-            'elevation': float(cfg['soiling'] * 12.0 + 30.0), # ارتفاع مرئي يعكس كثافة الرمال على الألواح
-            'color': [220, 50, 30, 220] if cfg['soiling'] > 18 else [20, 160, 220, 220]
-        })
-        
-    df_panels = pd.DataFrame(map_panels)
+    # تصميم مصفوفة هندسية بحتة لصفوف الألواح (بدون خلفية خريطة العالم)
+    matrix_panels = []
+    matrix_lines = []
+    
+    rows_grid = int(np.sqrt(num_strings))
+    if rows_grid < 2: 
+        rows_grid = 2
+    cols_grid = int(np.ceil(num_strings / rows_grid))
 
-    # طبقة أعمدة ثلاثية الأبعاد تمثل صفوف الألواح بدقة بصرية عالية
-    panel_layer = pdk.Layer(
+    idx = 0
+    for r in range(rows_grid):
+        for c in range(cols_grid):
+            if idx >= num_strings:
+                break
+            str_name = f"Solar Row {idx+1}"
+            cfg = string_configs[str_name]
+            
+            # إحداثيات مصفوفة افتراضية داخل مساحة المحطة المعزولة
+            x_pos = float(c * 15.0)
+            y_pos = float(r * 15.0)
+            z_height = float(cfg['soiling'] * 1.5 + (cfg['tilt'] * 0.5))
+            
+            matrix_panels.append({
+                'row_name': str_name,
+                'x': x_pos,
+                'y': y_pos,
+                'z': z_height,
+                'soiling': cfg['soiling'],
+                'tilt': cfg['tilt'],
+                'wattage': panel_wattage,
+                'color': [30, 144, 255, 240] if cfg['soiling'] <= 18 else [255, 69, 0, 240] # أزرق للوضع الطبيعي أو برتقالي/حمر للرمال
+            })
+            
+            # ربط الصفوف ببعضها بخوط شبكية تقنية (Tech-Grid Lines)
+            if idx < num_strings - 1:
+                next_x = float(((idx+1) % cols_grid) * 15.0)
+                next_y = float(((idx+1) // cols_grid) * 15.0)
+                matrix_lines.append({
+                    'x1': x_pos, 'y1': y_pos, 'z1': z_height,
+                    'x2': next_x, 'y2': next_y, 'z2': z_height
+                })
+            idx += 1
+
+    df_matrix = pd.DataFrame(matrix_panels)
+    df_mat_lines = pd.DataFrame(matrix_lines)
+
+    # طبقة مصفوفة الألواح ثلاثية الأبعاد بدون خلفية خريطة
+    matrix_layer = pdk.Layer(
         "ColumnLayer",
-        data=df_panels,
-        get_position=["lon", "lat"],
-        get_elevation="elevation",
-        elevation_scale=12.0,
-        radius=180,
+        data=df_matrix,
+        get_position=["x", "y"],
+        get_elevation="z",
+        elevation_scale=4.0,
+        radius=3.5,
         get_fill_color="color",
         pickable=True,
         auto_highlight=True,
     )
 
-    view_state = pdk.ViewState(
-        latitude=lat,
-        longitude=lon,
-        zoom=13,
-        pitch=55.0, # زاوية ميل كاميرا ثلاثية الأبعاد واضحة للألواح
-        bearing=30
+    # طبقة خطوط الربط الشبكي التقني بين الألواح
+    matrix_line_layer = pdk.Layer(
+        "LineLayer",
+        data=df_mat_lines,
+        get_source_position=["x1", "y1", "z1"],
+        get_target_position=["x2", "y2", "z2"],
+        get_color=[0, 255, 200, 180],
+        get_width=3
     )
 
-    r_panels = pdk.Deck(
-        layers=[panel_layer],
-        initial_view_state=view_state,
+    # عرض ثلاثي الأبعاد هندسي بحت مقفل على المصفوفة
+    view_state_matrix = pdk.ViewState(
+        latitude=0,
+        longitude=0,
+        zoom=3.5,
+        pitch=45.0,
+        bearing=15
+    )
+
+    r_matrix = pdk.Deck(
+        layers=[matrix_layer, matrix_line_layer],
+        initial_view_state=view_state_matrix,
+        map_style="", # تفريغ خريطة الخلفية تماماً لتصبح شاشة تقنية سوداء/داكنة مخصصة للألواح فقط
         tooltip={
-            "html": "<b>صف الألواح:</b> {row_name} <br/> <b>قدرة اللوحة:</b> {wattage}W <br/> <b>نسبة الغبار والرمال:</b> {soiling}% <br/> <b>زاوية الميل:</b> {tilt}°",
-            "style": {"backgroundColor": "#1e293b", "color": "white", "border": "1px solid #38bdf8"}
+            "html": "<b>صف الألواح:</b> {row_name} <br/> <b>قدرة اللوحة:</b> {wattage}W <br/> <b>نسبة الغبار:</b> {soiling}% <br/> <b>زاوية الميل:</b> {tilt}°",
+            "style": {"backgroundColor": "#090d16", "color": "#00ffcc", "border": "1px solid #00ffcc"}
         }
     )
 
-    st.pydeck_chart(r_panels)
-    st.caption("💡 الخريطة تعرض صفوف الألواح الحية في مرمول. الأعمدة الحمراء تشير إلى صفوف مغطاة بالرمال وتتطلب تدخلاً فورياً للروبوتات الجافة.")
+    st.pydeck_chart(r_matrix)
+    st.caption("💡 مصفوفة بصرية هندسية بحتة لصفوف الألواح وخطوط الربط الشبكي في مرمول بدون خريطة جغرافية للخارج.")
 
     # جدول تفصيلي مرئي لصفوف الألواح
-    st.markdown("### 📊 جدول المواصفات المرئية لصفوف الألواح في مرمول")
+    st.markdown("### 📊 جدول مواصفات صفوف الألواح في مرمول")
     panel_table_data = []
     for i in range(num_strings):
         str_name = f"Solar Row {i+1}"
@@ -338,7 +371,7 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل لموقع مرمول"):
-        with st.spinner("الوكيل الذكي يحلل بيانات صفوف الألواح، الخريطة ثلاثية الأبعاد، وطوارئ صحراء الوسطى..."):
+        with st.spinner("الوكيل الذكي يحلل بيانات صفوف الألواح، مصفوفة الثلاثية الأبعاد، وطوارئ صحراء الوسطى..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 prompt = f"""
@@ -351,7 +384,7 @@ else:
                 - حالة العاصفة: {"نشطة" if dust_storm_active else "غير نشطة"}
                 - LCOE: {lcoe:.4f} / kWh.
                 
-                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح في بيئة مرمول القاسية، أداء الروبوتات الجافة، وكفاءة زوايا الميل.
+                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح الهندسية في بيئة مرمول القاسية، أداء الروبوتات الجافة، وكفاءة زوايا الميل.
                 """
                 interaction = client.interactions.create(model='gemini-3.6-flash', input=prompt)
                 st.success("تم توليد التقرير بنجاح!")
