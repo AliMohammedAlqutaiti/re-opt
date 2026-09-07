@@ -5,10 +5,10 @@ import pvlib
 import requests
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Digital Twin Dashboard", layout="wide")
+st.set_page_config(page_title="RE-OPT: Enterprise Digital Twin Dashboard", layout="wide")
 
-st.title("⚡ RE-OPT: AI-Powered Renewable Energy Digital Twin")
-st.markdown("منصة التوأم الرقمي والوكيل الذكي المعتمد على Google Gemini لمراقبة وتشخيص أصول الطاقة الشمسية في مسقط.")
+st.title("⚡ RE-OPT: Enterprise Renewable Energy Digital Twin & O&M Platform")
+st.markdown("منصة التوأم الرقمي المؤسسي وإدارة أصول الطاقة الشمسية - قطاع العمليات التشغيلية.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather():
@@ -27,31 +27,29 @@ def fetch_live_weather():
 
 api_temp, api_wind = fetch_live_weather()
 
-st.sidebar.header("إعدادات المحاكاة والبيانات الحية")
+st.sidebar.header("إعدادات لوحة التحكم المؤسسية")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
-rated_capacity = st.sidebar.slider("قدرة المحطة (kW)", min_value=5.0, max_value=50.0, value=10.0, step=5.0)
+rated_capacity = st.sidebar.slider("قدرة المحطة الإجمالية (kW)", min_value=10.0, max_value=500.0, value=50.0, step=10.0)
 
-st.sidebar.subheader("التحكم في بيانات الطقس (مطابقة الهاتف)")
+st.sidebar.subheader("بيانات الموقع الحي (مسقط)")
 live_temp = st.sidebar.number_input("درجة الحرارة المحيطة (°C)", min_value=10.0, max_value=55.0, value=float(api_temp), step=0.5)
 live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=float(api_wind), step=0.5)
 live_wind = live_wind_kmh / 3.6
 
-st.sidebar.subheader("عوامل الأداء والتشغيل المتقدمة")
-days_since_cleaning = st.sidebar.slider("الأيام منذ آخر تنظيف للألواح", min_value=1, max_value=90, value=15, step=1)
+st.sidebar.subheader("معايير أداء الأصول والصيانة")
+days_since_cleaning = st.sidebar.slider("الأيام المنقضيّة منذ آخر عملية تنظيف", min_value=1, max_value=90, value=12, step=1)
 max_soiling_limit = 40.0
 soiling_loss = max_soiling_limit * (1.0 - np.exp(-0.04 * days_since_cleaning))
 
 albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.35, step=0.05)
-tilt_error = st.sidebar.slider("خطأ زاوية الميل (Degrees °)", min_value=0.0, max_value=90.0, value=5.0, step=1.0)
+tilt_error = st.sidebar.slider("خطأ زاوية الميل (Degrees °)", min_value=0.0, max_value=90.0, value=2.0, step=1.0)
+tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
 
-tariff = st.sidebar.number_input("تعرفة الكهرباء (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
-
-# إعدادات الجدوى الاقتصادية للتنظيف
-st.sidebar.subheader("إعدادات تكلفة الصيانة والتنظيف")
-cleaning_cost = st.sidebar.number_input("تكلفة عملية التنظيف الواحدة (ر.ع)", min_value=1.0, max_value=100.0, value=15.0, step=1.0)
+st.sidebar.subheader("اقتصاديات الصيانة والتشغيل (O&M)")
+cleaning_cost = st.sidebar.number_input("تكلفة عقد التنظيف الميداني (ر.ع)", min_value=10.0, max_value=500.0, value=50.0, step=5.0)
 
 @st.cache_data
-def run_hybrid_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
+def run_enterprise_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
     site_latitude = 23.58
     site_longitude = 58.38
     tz = 'Asia/Muscat'
@@ -81,65 +79,73 @@ def run_hybrid_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
     actual_power = ideal_thermal_power * actual_factor
     
     results = pd.DataFrame({
-        'التوأم الرقمي (مع طقس مسقط والحرارة)': ideal_thermal_power,
-        'الواقع التشغيلي (مع الغبار غير الخطي)': actual_power
+        'الإنتاج المثالي (مرجع المحطة)': ideal_thermal_power,
+        'الإنتاج الفعلي (بعد التدهور والغبار)': actual_power
     }, index=times)
     
     return results
 
-df_results = run_hybrid_simulation(rated_capacity, soiling_loss, albedo, tilt_error, live_temp, live_wind)
+df_results = run_enterprise_simulation(rated_capacity, soiling_loss, albedo, tilt_error, live_temp, live_wind)
 
-loss_kwh = (df_results['التوأم الرقمي (مع طقس مسقط والحرارة)'] - df_results['الواقع التشغيلي (مع الغبار غير الخطي)']).sum()
-financial_loss = loss_kwh * tariff
+loss_kwh = (df_results['الإنتاج المثالي (مرجع المحطة)'] - df_results['الإنتاج الفعلي (بعد التدهور والغبار)']).sum()
+daily_financial_loss = loss_kwh * tariff
+accumulated_loss = daily_financial_loss * days_since_cleaning
 
-# حساب الخسائر المتراكمة خلال فترة الأيام منذ آخر تنظيف وتحديد جدوى الصيانة
-accumulated_loss_period = financial_loss * days_since_cleaning
-roi_exceeded = accumulated_loss_period >= cleaning_cost
+# خوارزمية التنبؤ بموعد الصيانة المستقبلي (Predictive Forecasting Loop)
+predicted_day_to_threshold = days_since_cleaning
+temp_accumulated = accumulated_loss
+simulated_days_ahead = 0
+
+while temp_accumulated < cleaning_cost and simulated_days_ahead < 60:
+    simulated_days_ahead += 1
+    future_soiling = max_soiling_limit * (1.0 - np.exp(-0.04 * (days_since_cleaning + simulated_days_ahead)))
+    future_loss_kwh = loss_kwh * (future_soiling / max(1.0, soiling_loss))
+    temp_accumulated += future_loss_kwh * tariff
+
+optimal_cleaning_window = days_since_cleaning + simulated_days_ahead
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("إجمالي الطاقة المفقودة اليوم", f"{loss_kwh:.2f} kWh")
-col2.metric("الخسارة المالية اليومية", f"{financial_loss:.3f} ر.ع")
-col3.metric("فقدان الغبار الحالي", f"{soiling_loss:.1f}% ({days_since_cleaning} يوم)")
-col4.metric("الخسارة المتراكمة للفترة", f"{accumulated_loss_period:.2f} ر.ع")
+col1.metric("إجمالي الفقد اليومي", f"{loss_kwh:.2f} kWh")
+col2.metric("الخسارة المالية اليومية", f"{daily_financial_loss:.3f} ر.ع")
+col3.metric("الخسارة المتراكمة الحالية", f"{accumulated_loss:.2f} ر.ع")
+col4.metric("التنبؤ: نافذة التنظيف المثلى", f"بعد {optimal_cleaning_window} يوماً")
 
 st.markdown("---")
 
-# تنبيه تفاعلي لحالة الجدوى الاقتصادية للتنظيف
-if roi_exceeded:
-    st.error(f"🚨 **تنبيه حرج للجدوى الاقتصادية:** الخسائر المالية المتراكمة ({accumulated_loss_period:.2f} ر.ع) تجاوزت تكلفة التنظيف ({cleaning_cost} ر.ع). **يُوصى بإجراء عملية التنظيف فوراكس لتعظيم العائد (ROI).**")
+if accumulated_loss >= cleaning_cost:
+    st.error(f"🚨 **إنذار تشغيلي حرج:** الخسائر المتراكمة الحالية ({accumulated_loss:.2f} ر.ع) تجاوزت تكلفة الصيانة المعتمدة. **يجب إصدار أمر عمل فوري لفرق الصيانة.**")
 else:
-    st.success(f"✅ **الحالة التشغيلية سليمة:** الخسائر المتراكمة ({accumulated_loss_period:.2f} ر.ع) لم تتجاوز حد تكلفة التنظيف بعد ({cleaning_cost} ر.ع). الصيانة المؤجلة مجدية اقتصادياً حالياً.")
+    st.success(f"✅ **كفاءة الأصول مستقرة:** الخسائر المتراكمة دون الحد الحرج. نموذج التنبؤ يوصي بجدولة التنظيف الميداني القادم خلال **{simulated_days_ahead} يوماً** (في اليوم {optimal_cleaning_window} تقريباً).")
 
-st.subheader("مقارنة الأداء: التوأم الهجين مقابل الواقع التشغيلي بالتراكم غير الخطي للغبار")
+st.subheader("تحليل منحنى محاكاة الأداء اليومي للأصول")
 st.line_chart(df_results)
 
-st.subheader("🤖 تقرير تحليل الوكيل الذكي (Interactions API & Gemini 3.6)")
+st.subheader("🤖 تقرير تحليل الأصول والجدولة التنبؤية (Interخصائص المؤسسات & Gemini 3.6)")
 
 if not gemini_api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي.")
+    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي المؤسسي.")
 else:
-    if st.button("توليد التقرير التحليلي للجدوى الاقتصادية"):
-        with st.spinner("الوكيل الذكي يحلل جدوى الصيانة والأثر المالي للتنظيف..."):
+    if st.button("توليد تقرير العمليات التشغيلية والجدولة التنبؤية"):
+        with st.spinner("الوكيل الذكي يعالج خوارزميات التنبؤ المسبق للغبار وجدولة الصيانة المؤسسية..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
-                status_text = "تجاوزت الخسائر تكلفة الصيانة ويجب التنظيف فوراً" if roi_exceeded else "لم تصل الخسائر لحد الجدوى بعد"
-                
                 prompt = f"""
-                أنت وكيل ذكاء اصطناعي خبير في هندسة وإدارة أصول الطاقة الشمسية التشغيلية.
-                بيانات الجدوى الاقتصادية الحالية للمحطة:
-                - الأيام منذ آخر تنظيف: {days_since_cleaning} يوماً
-                - نسبة فقدان الغبار غير الخطي: {soiling_loss:.1f}%
-                - الخسارة المالية اليومية: {financial_loss:.3f} ر.ع
-                - الخسارة المالية المتراكمة للفترة: {accumulated_loss_period:.2f} ر.ع
-                - تكلفة عملية التنظيف: {cleaning_cost} ر.ع
-                - حالة الجدوى (ROI Status): {status_text}
-                - درجة الحرارة الحية: {live_temp}°C | الرياح: {live_wind_kmh} km/h
+                أنت مدير هندسة الأصول التشغيلية وخبير استراتيجي في إدارة قطاع الطاقة.
+                بيانات الأصول المؤسسية الحالية:
+                - قدرة المحطة: {rated_capacity} kW
+                - الأيام منذ آخر صيانة: {days_since_cleaning} يوماً
+                - نسبة الفقد الحالي بسبب الغبار (غير خطي): {soiling_loss:.1f}%
+                - الخسارة المالية اليومية: {daily_financial_loss:.3f} ر.ع
+                - الخسارة المتراكمة الحالية: {accumulated_loss:.2f} ر.ع
+                - تكلفة عقد التنظيف: {cleaning_cost} ر.ع
+                - التنبؤ الذكي: نافذة التنظيف الموصى بها خلال {simulated_days_ahead} يوماً إضافياً (الإجمالي اليوم {optimal_cleaning_window}).
+                - الظروف المناخية الحية: حرارة {live_temp}°C، رياح {live_wind_kmh} km/h.
                 
-                قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية يتضمن:
-                1. تقييم الأثر المالي لتراكم الأتربة في أجواء مسقط خلال الفترة الحالية.
-                2. تحليل عتبة الجدوى الاقتصادية للتنظيف وهل حان الوقت الفعلي لجدولة فريق الصيانة بناءً على الأرقام أعلاه.
-                3. توصيات إدارية وهندسية واضحة لصناع القرار في إدارة الأصول.
+                قدم تقريراً تشغيلياً واحترافياً باللغة العربية موجهًا للإدارة العليا في الشركة، يتضمن:
+                1. تقييم كفاءة الأصول الحالية في بيئة مسقط وتحليل سرعة تراكم الأتربة.
+                2. تفصيل نموذج التنبؤ المالي وتحديد الجدوى الاقتصادية الدقيقة لقرار تأجيل أو تقديم الصيانة.
+                3. التوصيات التنفيذية وجدولة أوامر العمل لفرق الصيانة الميدانية.
                 """
                 
                 interaction = client.interactions.create(
@@ -147,7 +153,7 @@ else:
                     input=prompt
                 )
                 
-                st.success("تم توليد التقرير بنجاح!")
+                st.success("تم توليد التقرير المؤسسي بنجاح!")
                 st.markdown(interaction.output_text)
                 
             except Exception as e:
