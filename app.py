@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pvlib
-import google.generativeai as genai
+from google import genai
 
 st.set_page_config(page_title="RE-OPT: Digital Twin Dashboard", layout="wide")
 
@@ -61,8 +61,7 @@ else:
     if st.button("توليد التقرير التحليلي باستخدام Gemini"):
         with st.spinner("الوكيل الذكي (Gemini) يقوم بتحليل بيانات التوأم الرقمي..."):
             try:
-                genai.configure(api_key=gemini_api_key)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
                 أنت وكيل ذكاء اصطناعي خبير في تشخيص محطات الطاقة الشمسية.
@@ -79,7 +78,11 @@ else:
                 3. توصية تنفيذية واضحة لصناع القرار متى يتم جدولة التنظيف.
                 """
                 
-                response = model.generate_content(prompt)
+                response = client.models.generate_content(
+                    model='gemini-3.5-flash',
+                    contents=prompt
+                )
+                
                 st.success("تم توليد التقرير بنجاح بواسطة Gemini!")
                 st.markdown(response.text)
                 
