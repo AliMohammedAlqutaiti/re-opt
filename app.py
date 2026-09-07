@@ -10,7 +10,6 @@ st.set_page_config(page_title="RE-OPT: Digital Twin Dashboard", layout="wide")
 st.title("⚡ RE-OPT: AI-Powered Renewable Energy Digital Twin")
 st.markdown("منصة التوأم الرقمي والوكيل الذكي المعتمد على Google Gemini لمراقبة وتشخيص أصول الطاقة الشمسية في مسقط.")
 
-# جلب بيانات الطقس الحية من مسقط
 @st.cache_data(ttl=600)
 def fetch_live_weather():
     try:
@@ -33,15 +32,17 @@ gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", typ
 rated_capacity = st.sidebar.slider("قدرة المحطة (kW)", min_value=5.0, max_value=50.0, value=10.0, step=5.0)
 
 st.sidebar.subheader("التحكم في بيانات الطقس (مطابقة الهاتف)")
-# جعل القيم قابلة للتعديل يدوياً لتطابق هاتفك تماماً
 live_temp = st.sidebar.number_input("درجة الحرارة المحيطة (°C)", min_value=10.0, max_value=55.0, value=float(api_temp), step=0.5)
-live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=6.0, step=0.5)
-
-# تحويل سرعة الرياح من km/h إلى m/s لاستخدامها في معادلة pvlib (حيث 1 m/s = 3.6 km/h)
+live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=float(api_wind), step=0.5)
 live_wind = live_wind_kmh / 3.6
 
-st.sidebar.subheader("عوامل الأداء والتشخيص")
-soiling_loss = st.sidebar.slider("نسبة فقدان الغبار (Soiling %)", min_value=0.0, max_value=100.0, value=15.0, step=1.0)
+st.sidebar.subheader("عوامل الأداء والتشخيص المتقدمة")
+# تحويل مدخلات الأيام إلى نسبة فقدان غير خطية للغبار
+days_since_cleaning = st.sidebar.slider("الأيام منذ آخر تنظيف للألواح", min_value=1, max_value=90, value=15, step=1)
+# معادلة تراكم الغبار غير الخطية (Asymptotic Soiling Curve)
+max_soiling_limit = 40.0 # أقصى نسبة فقد ممكنة بدون تنظيف
+soiling_loss = max_soiling_limit * (1.0 - np.exp(-0.04 * days_since_cleaning))
+
 albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.35, step=0.05)
 tilt_error = st.sidebar.slider("خطأ زاوية الميل (Degrees °)", min_value=0.0, max_value=90.0, value=5.0, step=1.0)
 
@@ -78,24 +79,24 @@ def run_hybrid_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
     actual_power = ideal_thermal_power * actual_factor
     
     results = pd.DataFrame({
-        'التوأم الرقمي (مع طقس مطابقة الهاتف)': ideal_thermal_power,
-        'الواقع التشغيلي (بعد الغبار والميل)': actual_power
+        'التوأم الرقمي (مع طقس مسقط والحرارة)': ideal_thermal_power,
+        'الواقع التشغيلي (مع الغبار غير الخطي)': actual_power
     }, index=times)
     
     return results
 
 df_results = run_hybrid_simulation(rated_capacity, soiling_loss, albedo, tilt_error, live_temp, live_wind)
 
-loss_kwh = (df_results['التوأم الرقمي (مع طقس مطابقة الهاتف)'] - df_results['الواقع التشغيلي (بعد الغبار والميل)']).sum()
+loss_kwh = (df_results['التوأم الرقمي (مع طقس مسقط والحرارة)'] - df_results['الواقع التشغيلي (مع الغبار غير الخطي)']).sum()
 financial_loss = loss_kwh * tariff
 
 col1, col2, col3 = st.columns(3)
 col1.metric("إجمالي الطاقة المفقودة اليوم", f"{loss_kwh:.2f} kWh")
 col2.metric("الخسارة المالية التقديرية", f"{financial_loss:.3f} ر.ع")
-col3.metric("مستوى الكفاءة الفعلي", f"{max(0.0, 100.0 - soiling_loss - (tilt_error*0.5)):.1f}%")
+col3.metric("نسبة فقدان الغبار المحسوبة", f"{soiling_loss:.1f}% (بعد {days_since_cleaning} يوم)")
 
 st.markdown("---")
-st.subheader("مقارنة الأداء: التوأم الهجين (مطابق لبيانات هاتفك) مقابل الواقع")
+st.subheader("مقارنة الأداء: التوأم الهجين مقابل الواقع التشغيلي بالتراكم غير الخطي للغبار")
 st.line_chart(df_results)
 
 st.subheader("🤖 تقرير تحليل الوكيل الذكي (Interactions API & Gemini 3.6)")
@@ -103,27 +104,23 @@ st.subheader("🤖 تقرير تحليل الوكيل الذكي (Interactions A
 if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي.")
 else:
-    if st.button("توليد التقرير التحليلي الهجين"):
-        with st.spinner("الوكيل الذكي يعالج بيانات الطقس والحرارة..."):
+    if st.button("توليد التقرير التحليلي غير الخطي"):
+        with st.spinner("الوكيل الذكي يحلل معدل تراكم الغبار والأثر المالي..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
                 أنت وكيل ذكاء اصطناعي خبير في هندسة الطاقة الشمسية.
-                بيانات الطقس المستخدمة في المحاكاة (مطابقة لهاتف المستخدم):
-                - درجة الحرارة المحيطة: {live_temp}°C
-                - سرعة الرياح: {live_wind_kmh} km/h
-                
-                بيانات التشخيص:
+                بيانات المحاكاة الحالية:
+                - الأيام منذ آخر تنظيف: {days_since_cleaning} يوماً
+                - نسبة فقدان الغبار المحسوبة غير خطياً: {soiling_loss:.1f}%
+                - درجة الحرارة المحيطة: {live_temp}°C | سرعة الرياح: {live_wind_kmh} km/h
                 - قدرة المحطة: {rated_capacity} kW
-                - فقدان الغبار: {soiling_loss}%
-                - معامل Albedo: {albedo}
-                - خطأ زاوية الميل: {tilt_error}°
                 - الطاقة المفقودة اليوم: {loss_kwh:.2f} kWh
                 - الخسارة المالية: {financial_loss:.3f} ريال عماني
                 - التعرفة: {tariff} ر.ع/kWh
                 
-                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يربط بين ظروف الطقس الحالية والأداء الحراري والمالي للمحطة.
+                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يوضح تأثير تراكم الغبار غير الخطي عبر الزمن في بيئة مسقط، وتقييماً للأثر المالي، وتوصية بموعد التنظيف الأمثل.
                 """
                 
                 interaction = client.interactions.create(
