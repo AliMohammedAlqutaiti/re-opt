@@ -2,13 +2,16 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pvlib
+from openai import OpenAI
 
 st.set_page_config(page_title="RE-OPT: Digital Twin Dashboard", layout="wide")
 
 st.title("⚡ RE-OPT: AI-Powered Renewable Energy Digital Twin")
-st.markdown("منصة التوأم الرقمي والوكيل الذكي لمراقبة وتشخيص أصول الطاقة الشمسية في سلطنة عمان.")
+st.markdown("منصة التوأم الرقمي والوكيل الذكي المعتمد على الذكاء الاصطناعي التوليدي لمراقبة وتشخيص أصول الطاقة الشمسية.")
 
-st.sidebar.header("إعدادات المحاكاة")
+# إعدادات الشريط الجانبي
+st.sidebar.header("إعدادات المحاكاة والذكاء الاصطناعي")
+openai_api_key = st.sidebar.text_input("أدخل مفتاح OpenAI API Key", type="password")
 rated_capacity = st.sidebar.slider("قدرة المحطة (kW)", min_value=5.0, max_value=50.0, value=10.0, step=5.0)
 soiling_loss = st.sidebar.slider("نسبة فقدان الغبار (Soiling %)", min_value=0.0, max_value=30.0, value=15.0, step=1.0)
 tariff = st.sidebar.number_input("تعرفة الكهرباء (ر.ع / kWh)", value=0.030, step=0.005)
@@ -51,10 +54,38 @@ st.markdown("---")
 st.subheader("مقارنة الأداء: التوأم الرقمي مقابل الإنتاج الواقعي")
 st.line_chart(df_results)
 
-st.subheader("تقرير تشخيص الوكيل الذكي (AI Agent Diagnosis)")
+st.subheader("🤖 تقرير تحليل الوكيل الذكي (Dynamic LLM Agent Report)")
 
-if soiling_loss > 10:
-    st.error(f"⚠️ **تنبيه تشغيلي:** تم رصد انخفاض ملحوظ في الكفاءة بنسبة {soiling_loss}% مقارنة بنموذج التوأم الرقمي.")
-    st.info(f"💡 **التوصية المقترحة:** بناءً على معدل تراكم الغبار في أجواء مسقط والخسارة المالية اليومية البالغة **{financial_loss:.3f} ر.ع**، يُنصح بجدولة فريق التنظيف للأقسام المتأثرة خلال 48 ساعة القادمة لضمان استرداد التكلفة.")
+if not openai_api_key:
+    st.warning("⚠️ يرجى إدخال مفتاح OpenAI API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي الديناميكي.")
 else:
-    st.success("✅ **الحالة مستقرة:** أداء المحطة يتطابق بشكل جيد مع محاكاة التوأم الرقمي ولا توجد خسائر غير مبررة.")
+    if st.button("توليد التقرير التحليلي بالذكاء الاصطناعي"):
+        with st.spinner("الوكيل الذكي يقوم بتحليل بيانات التوأم الرقمي..."):
+            try:
+                client = OpenAI(api_key=openai_api_key)
+                prompt = f"""
+                أنت وكيل ذكاء اصطناعي خبير في تشخيص محطات الطاقة الشمسية.
+                بيانات المحطة الحالية:
+                - قدرة المحطة: {rated_capacity} kW
+                - نسبة فقدان الكفاءة بسبب الغبار: {soiling_loss}%
+                - الطاقة المفقودة اليوم: {loss_kwh:.2f} kWh
+                - الخسارة المالية اليومية: {financial_loss:.3f} ريال عماني
+                - تعرفة الكهرباء: {tariff} ر.ع/kWh
+                
+                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يتضمن:
+                1. تحليل السبب الجذري.
+                2. التقييم المالي والأثر الاقتصادي.
+                3. توصية تنفيذية واضحة لصناع القرار متى يتم جدولة التنظيف.
+                """
+                
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                
+                ai_report = response.choices[0].message.content
+                st.success("تم توليد التقرير بنجاح!")
+                st.markdown(ai_report)
+                
+            except Exception as e:
+                st.error(f"حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {e}")
