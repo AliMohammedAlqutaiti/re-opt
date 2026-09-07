@@ -53,14 +53,15 @@ st.markdown("---")
 st.subheader("مقارنة الأداء: التوأم الرقمي مقابل الإنتاج الواقعي")
 st.line_chart(df_results)
 
-st.subheader("🤖 تقرير تحليل الوكيل الذكي (Gemini AI Agent)")
+st.subheader("🤖 تقرير تحليل الوكيل الذكي (Interactions API)")
 
 if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي.")
 else:
-    if st.button("توليد التقرير التحليلي باستخدام Gemini Flash"):
-        with st.spinner("الوكيل الذكي يقوم بتحليل البيانات وإعداد التقرير..."):
+    if st.button("توليد التقرير عبر Interactions API"):
+        with st.spinner("الوكيل الذكي يعالج الطلب عبر Interactions API..."):
             try:
+                # تهيئة العميل بالطريقة الحديثة
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
@@ -78,13 +79,14 @@ else:
                 3. توصية تنفيذية واضحة لصناع القرار متى يتم جدولة التنظيف.
                 """
                 
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=prompt
+                # استخدام الـ Interactions API بالطريقة المعتمدة في المكتبة الحديثة
+                interaction = client.interactions.create(
+                    model='gemini-3.6-flash',
+                    input=prompt
                 )
                 
-                st.success("تم توليد التقرير بنجاح!")
-                st.markdown(response.text)
+                st.success("تم توليد التقرير بنجاح عبر Interactions API!")
+                st.markdown(interaction.output_text)
                 
             except Exception as e:
                 st.error(f"حدث خطأ أثناء الاتصال: {e}")
