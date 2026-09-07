@@ -87,8 +87,8 @@ def run_enterprise_simulation(total_cap, n_inv, configs, tech_mode, alb, bif_fac
     block_capacity = total_cap / n_inv
     
     simulation_results = {}
-    total_mono_ideal = np.zeros(len(times))
-    total_bif_ideal = np.zeros(len(times))
+    total_mono_actual = np.zeros(len(times))
+    total_bif_actual = np.zeros(len(times))
     total_actual = np.zeros(len(times))
     
     for i in range(n_inv):
@@ -98,36 +98,40 @@ def run_enterprise_simulation(total_cap, n_inv, configs, tech_mode, alb, bif_fac
         base_power = (ghi / peak_ghi) * block_capacity
         base_power = base_power.clip(lower=0)
         
-        # حساب النوع الأحادي والنوع ثنائي الوجه لكل محول للمقارنة الهندسية
-        mono_ideal = base_power * temp_factor
+        # القدرة الأساسية للنوعين
+        mono_base = base_power * temp_factor
         bif_gain = 1.0 + (alb * bif_factor * 0.18)
-        bif_ideal = base_power * bif_factor * temp_factor * bif_gain if tech_mode != "أحادية الوجه (Mono-facial)" else mono_ideal
+        bif_base = base_power * temp_factor * bif_gain
         
-        selected_ideal = bif_ideal if "ثنائية الوجه" in tech_mode or (tech_mode == "هجين (مزيج بين النوعين)" and i % 2 == 0) else mono_ideal
-        
+        # تطبيق عوامل التدهور والترسبات على كلا النوعين بالتساوي
         total_degradation = cfg['soiling'] + (cfg['tilt_error'] * 0.5)
         actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
+        
+        mono_actual_power = mono_base * actual_factor
+        bif_actual_power = bif_base * actual_factor
+        
+        selected_actual = bif_actual_power if "ثنائية الوجه" in tech_mode or (tech_mode == "هجين (مزيج بين النوعين)" and i % 2 == 0) else mono_actual_power
         
         if is_live:
             np.random.seed(100 + i)
             noise = np.random.normal(1.0, 0.008, len(times))
-            actual_power = selected_ideal * actual_factor * noise
+            scada_power = selected_actual * noise
         else:
-            actual_power = selected_ideal * actual_factor
+            scada_power = selected_actual
             
         simulation_results[inv_name] = pd.DataFrame({
-            'التوأم الرقمي (أحادى الوجه Mono)': mono_ideal * actual_factor,
-            'التوأم الرقمي (ثنائي الوجه Bifacial)': bif_ideal * actual_factor,
-            'قياسات سكادا الفعليّة (IoT)': actual_power
+            'الواقع (أحادى الوجه Mono)': mono_actual_power,
+            'الواقع (ثنائي الوجه Bifacial)': bif_actual_power,
+            'قياسات سكادا الفعليّة (IoT)': scada_power
         }, index=times)
         
-        total_mono_ideal += (mono_ideal * actual_factor)
-        total_bif_ideal += (bif_ideal * actual_factor)
-        total_actual += actual_power
+        total_mono_actual += mono_actual_power
+        total_bif_actual += bif_actual_power
+        total_actual += scada_power
 
     simulation_results['Plant_Total'] = pd.DataFrame({
-        'إجمالي التوأم (أحادى الوجه)': total_mono_ideal,
-        'إجمالي التوأم (ثنائي الوجه)': total_bif_ideal,
+        'إجمالي الواقع (أحادى الوجه)': total_mono_actual,
+        'إجمالي الواقع (ثنائي الوجه)': total_bif_actual,
         'إجمالي قياسات سكادا الفعلية': total_actual
     }, index=times)
     
@@ -136,8 +140,8 @@ def run_enterprise_simulation(total_cap, n_inv, configs, tech_mode, alb, bif_fac
 inverter_data = run_enterprise_simulation(total_capacity, num_inverters, inverter_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
 
 df_total = inverter_data['Plant_Total']
-total_plant_loss_kwh = (df_total['إجمالي التوأم (ثنائي الوجه)'] - df_total['إجمالي قياسات سكادا الفعلية']).sum()
-daily_financial_loss = max(0.0, total_plant_loss_kwh * tariff)
+total_plant_loss_kwh = (df_total['إجمالي الواقع (ثنائي الوجه)'] - df_total['إجمالي قياسات سكادا الفعلية']).sum()
+daily_financial_loss = max(0.0, abs(total_plant_loss_kwh) * tariff)
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
 tab1, tab2, tab3 = st.tabs(["📈 المقارنة بين الأحادية وثنائية الوجه", "🔍 التشخيص الذكي للأعطال (FDD)", "🤖 غرفة عمليات أسطول الروبوتات"])
@@ -147,7 +151,7 @@ with tab1:
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("نوع التكنولوجيا المعتمدة", technology_type)
-    c2.metric("إجمالي الفقد المفقود للطاقة", f"{total_plant_loss_kwh:,.1f} kWh")
+    c2.metric("حجم الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
     c3.metric("تكلفة إهلاك الروبوتات", f"{daily_robot_depreciation:.2f} ر.ع")
     c4.metric("صافي العائد الاقتصادي", f"{net_robotic_roi:,.2f} ر.ع")
 
@@ -157,14 +161,14 @@ with tab1:
 
 with tab2:
     st.subheader("🔍 خوارزميات الكشف المبكر عن الأعطال والتشخيص (Fault Detection & Diagnostics - FDD)")
-    st.markdown("مقارنة الإنتاج الفعلي للسكادا مع النموذج المثالي لتقييم الانحرافات واكتشاف الأعطال الخفية في الكتل.")
+    st.markdown("مقارنة الإنتاج الفعلي للسكادا مع النموذج الواقعي لتقييم الانحرافات واكتشاف الأعطال الخفية في الكتل.")
 
     fdd_summary = []
     for inv_name, df_block in inverter_data.items():
         if inv_name == 'Plant_Total':
             continue
         
-        ideal_sum = df_block['التوأم الرقمي (ثنائي الوجه Bifacial)'].sum()
+        ideal_sum = df_block['الواقع (ثنائي الوجه Bifacial)'].sum()
         actual_sum = df_block['قياسات سكادا الفعليّة (IoT)'].sum()
         deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
         
@@ -183,7 +187,7 @@ with tab2:
         
         with st.expander(f"تقرير تشخيص محول {inv_name} (الانحراف: {deviation_pct:.2f}%)"):
             st.write(f"الحالة الحالية: {status}")
-            st.line_chart(df_block[['التوأم الرقمي (أحادى الوجه Mono)', 'التوأم الرقمي (ثنائي الوجه Bifacial)', 'قياسات سكادا الفعليّة (IoT)']])
+            st.line_chart(df_block[['الواقع (أحادى الوجه Mono)', 'الواقع (ثنائي الوجه Bifacial)', 'قياسات سكادا الفعليّة (IoT)']])
 
     st.table(pd.DataFrame(fdd_summary))
 
@@ -232,7 +236,7 @@ else:
                 - نوع تكنولوجيا الألواح: {technology_type}
                 - القدرة الكلية: {total_capacity/1000} MW على {num_inverters} محولات.
                 - أسطول الروبوتات: {total_robots} روبوت تنظيف جاف.
-                - إجمالي الفقد اليومي للطاقة: {total_plant_loss_kwh:,.1f} kWh.
+                - حجم الفارق الإنتاجي: {abs(total_plant_loss_kwh):,.1f} kWh.
                 - صافي العائد بعد إهلاك الروبوتات: {net_robotic_roi:,.2f} ر.ع.
                 
                 قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية للإدارة العليا يغطي:
