@@ -222,25 +222,23 @@ with tab3:
     st.subheader("🤖 غرفة عمليات الأسراب الروبوتية والخريطة المكانية ثلاثية الأبعاد (3D Fleet GIS)")
     st.markdown("عرض مكاني ثلاثي الأبعاد لتوزيع الروبوتات وكثافة الترسبات عبر كتل المحطة الصحراوية:")
 
-    # توليد نقاط مكانية ثلاثية الأبعاد (3D Scatter Coordinates) لكل كتلة محطة
     map_data_points = []
     for i in range(num_inverters):
         block_name = f"Block {i+1}"
-        soiling_val = inverter_configs[f"Inverter Block {i+1}']['soiling']
+        soiling_val = inverter_configs[f"Inverter Block {i+1}"]["soiling"]
         robots_in_block = int(total_robots / num_inverters)
         
-        for r in range(min(15, robots_in_block)): # تمثيل نقاط الروبوتات ثلاثياً
+        for r in range(min(15, robots_in_block)):
             map_data_points.append({
                 'X_Coord': float(i * 5.0 + np.random.uniform(0, 3)),
                 'Y_Coord': float(r * 1.5 + np.random.uniform(0, 1)),
-                'Z_Elevation': float(soiling_val * 0.5 + np.random.uniform(0, 0.5)), # الارتفاع ثلاثي الأبعاد يعكس شدة الغبار
+                'Z_Elevation': float(soiling_val * 0.5 + np.random.uniform(0, 0.5)),
                 'Block': block_name,
                 'Robot_Status': 'Active Sweep' if not dust_storm_active else 'Emergency Override'
             })
             
     df_3d = pd.DataFrame(map_data_points)
     
-    # رسم scatter chart ثلاثي الأبعاد تفاعلي
     st.scatter_chart(df_3d, x='X_Coord', y='Y_Coord', color='Block', size='Z_Elevation')
     st.caption("ملاحظة: المحور الأفقي والرأسي يمثلان الإحداثيات الجغرافية الميدانية للكتل، وحجم النقطة يعكس كثافة الغبار وعمليات أسراب الروبوتات.")
 
@@ -302,7 +300,7 @@ st.markdown("---")
 st.subheader("🤖 تقرير تحليل الأصول والعمليات المؤسسية (Gemini 3.6)")
 
 if not gemini_api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key لتفعيل الوكيل الذكي.")
+    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل للأصول"):
         with st.spinner("الوكيل الذكي يحلل بيانات الأداء، الخريطة ثلاثية الأبعاد، وطوارئ المحطة..."):
