@@ -6,15 +6,15 @@ import requests
 import json
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Ultimate Enterprise Digital Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Enterprise Utility Solar Digital Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Ultimate Manah Enterprise Digital Twin & O&M Platform")
-st.markdown("منصة التوأم الرقمي المؤسسي الشاملة - LCOE، أسراب الروبوتات الجافة، طوارئ العواصف، والتحليل المالي.")
+st.title("⚡ RE-OPT: Enterprise Utility-Scale Solar Digital Twin & AI O&M")
+st.markdown("منصة التوأم الرقمي المؤسسي لمحطات الطاقة الكبرى - نموذج تشغيلي عام مع مرجعية مشاريع منح الصحراوية (Manah-Class Benchmark).")
 
 @st.cache_data(ttl=600)
-def fetch_live_weather():
+def fetch_live_weather(lat, lon):
     try:
-        url = "https://api.open-meteo.com/v1/forecast?latitude=23.58&longitude=58.38&current=temperature_2m,wind_speed_10m"
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,wind_speed_10m"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
@@ -26,15 +26,32 @@ def fetch_live_weather():
         pass
     return 32.0, 6.0
 
-api_temp, api_wind = fetch_live_weather()
+# اختيار الموقع المرجعي للمحطة
+st.sidebar.header("إعدادات الموقع الجغرافي والبنية المؤسسية")
+site_benchmark = st.sidebar.selectbox(
+    "الموقع المرجعي للمحطة (Plant Benchmark)", 
+    ["منح، سلطنة عمان (Manah Desert Ref)", "بنبان، أسوان، مصر", "مجمع محمد بن راشد، دبي", "موقع مخصص (Custom Coordinates)"]
+)
 
-st.sidebar.header("إعدادات البنية المؤسسية والاقتصادية")
+if "منح" in site_benchmark:
+    lat, lon, site_name = 23.58, 58.38, "Manah Solar Complex (Oman Benchmark)"
+elif "بنبان" in site_benchmark:
+    lat, lon, site_name = 24.45, 32.72, "Benban Solar Park (Egypt)"
+elif "محمد بن راشد" in site_benchmark:
+    lat, lon, site_name = 24.75, 55.38, "MBR Solar Park (UAE)"
+else:
+    lat = st.sidebar.number_input("خط العرض (Latitude)", value=23.58)
+    lon = st.sidebar.number_input("خط الطول (Longitude)", value=58.38)
+    site_name = "Custom Utility Plant"
+
+api_temp, api_wind = fetch_live_weather(lat, lon)
+
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
-total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=500.0, value=100.0, step=50.0)
+total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=100.0, step=50.0)
 total_capacity = total_capacity_mw * 1000 
-num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverter Blocks)", [2, 4, 6], index=1)
+num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverter Blocks)", [2, 4, 6, 8], index=1)
 
-scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع محطة SCADA (IoT Stream)", value=True)
+scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA (IoT Stream)", value=True)
 
 if scada_mode:
     live_temp = api_temp
@@ -44,9 +61,9 @@ else:
     live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=float(api_wind*3.6), step=0.5)
     live_wind = live_wind_kmh / 3.6
 
-# عاصفة رملية طارئة
-st.sidebar.subheader("طوارئ البيئة الصحراوية (Dust Storm Simulator)")
-dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة (Dust Storm Event)", value=False)
+# طوارئ العواصف الرملية
+st.sidebar.subheader("محاكاة الطوارئ والبيئة القاسية (Dust Storms)")
+dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة", value=False)
 storm_soiling_penalty = st.sidebar.slider("معامل الفقد الإضافي للعاصفة (%)", min_value=5.0, max_value=40.0, value=15.0, step=2.5) if dust_storm_active else 0.0
 
 st.sidebar.subheader("تكنولوجيا الألواح واقتصاديات المحطة")
@@ -56,11 +73,11 @@ bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه لل�
 
 tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
 
-# إدارة أسطول الروبوتات والـ CAPEX (تمت مركزتها هنا لتظهر في لوحة الاقتصاديات)
-st.sidebar.subheader("اقتصاديات أسطول الروبوتات الجافة (Robot Fleet Economics)")
-total_robots = st.sidebar.number_input("إجمالي الروبوتات النشطة", min_value=500, max_value=3000, value=1800, step=100)
-initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي لأسطول الروبوتات (ر.ع)", min_value=500000.0, max_value=3000000.0, value=1200000.0, step=50000.0)
-daily_robot_depreciation = st.sidebar.number_input("إهلاك وصيانة الروبوتات اليومي (ر.ع)", min_value=10.0, max_value=300.0, value=45.0, step=5.0)
+# اقتصاديات أسطول الروبوتات
+st.sidebar.subheader("اقتصاديات أسطول الروبوتات الجافة (Dry-Cleaning Fleet)")
+total_robots = st.sidebar.number_input("إجمالي الروبوتات النشطة", min_value=500, max_value=5000, value=1800, step=100)
+initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي لأسطول الروبوتات ($ / OMR)", min_value=500000.0, max_value=5000000.0, value=1200000.0, step=50000.0)
+daily_robot_depreciation = st.sidebar.number_input("إهلاك وصيانة الروبوتات اليومي", min_value=10.0, max_value=500.0, value=45.0, step=5.0)
 
 st.sidebar.subheader("التحكم المستقل لكتل المحولات (Inverter Blocks)")
 inverter_configs = {}
@@ -73,13 +90,10 @@ for i in range(num_inverters):
         inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt_error': inv_tilt_err}
 
 @st.cache_data
-def run_ultimate_simulation(total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
-    site_latitude = 23.58
-    site_longitude = 58.38
+def run_enterprise_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
     tz = 'Asia/Muscat'
-    
     times = pd.date_range('2026-06-01 06:00:00', '2026-06-01 18:00:00', freq='h', tz=tz)
-    location = pvlib.location.Location(site_latitude, site_longitude, tz=tz)
+    location = pvlib.location.Location(latitude, longitude, tz=tz)
     clearsky = location.get_clearsky(times)
     
     peak_ghi = 1000.0
@@ -142,14 +156,13 @@ def run_ultimate_simulation(total_cap, n_inv, configs, tech_mode, alb, bif_facto
     
     return simulation_results
 
-inverter_data = run_ultimate_simulation(total_capacity, num_inverters, inverter_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
+inverter_data = run_enterprise_simulation(lat, lon, total_capacity, num_inverters, inverter_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
 
 df_total = inverter_data['Plant_Total']
 total_plant_loss_kwh = (df_total['إجمالي الواقع (ثنائي الوجه)'] - df_total['إجمالي قياسات سكادا الفعلية']).sum()
 daily_financial_loss = max(0.0, abs(total_plant_loss_kwh) * tariff)
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
-# حسابات LCOE الاقتصادية لـ 25 عاماً
 annual_generation_mwh = (df_total['إجمالي قياسات سكادا الفعلية'].sum() * 365) / 1000.0
 plant_capex = total_capacity_mw * 350000.0 
 total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciation * 365 * 25)
@@ -166,20 +179,20 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 with tab1:
     if dust_storm_active:
-        st.error("🚨 **تحذير طارئ:** عاصفة رملية نشطة تؤثر حالياً على منشآت الطاقة في مسقط/منح. تم تطبيق معامل فقد إضافي على الغبار.")
+        st.error("🚨 **تحذير طارئ:** عاصفة رملية نشطة تؤثر على الموقع المختار. تم تفعيل عقوبات الغبار الفورية.")
     
-    st.subheader(f"📈 مقارنة إنتاجية المحطة ({technology_type})")
+    st.subheader(f"📈 مقارنة إنتاجية المحطة ({site_name})")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
-    c2.metric("حجم الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
-    c3.metric("تعرفة الكهرباء", f"{tariff:.3f} ر.ع / kWh")
-    c4.metric("حالة النظام البيئي", "عاصفة نشطة" if dust_storm_active else "مستقر آلياً")
+    c2.metric("الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
+    c3.metric("تعرفة الكهرباء", f"{tariff:.3f} / kWh")
+    c4.metric("حالة الأصول", "عاصفة نشطة" if dust_storm_active else "مستقر آلياً")
 
     st.markdown("---")
     st.line_chart(df_total)
 
 with tab2:
-    st.subheader("🔍 خوارزميات الكشف المبكر عن الأعطال والتشخيص (Fault Detection & Diagnostics - FDD)")
+    st.subheader("🔍 التشخيص الذكي للأعطال (Fault Detection & Diagnostics - FDD)")
     fdd_summary = []
     for inv_name, df_block in inverter_data.items():
         if inv_name == 'Plant_Total':
@@ -190,9 +203,9 @@ with tab2:
         deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
         
         if deviation_pct > 10.0 or dust_storm_active:
-            status = "🚨 تنبيه حرج: تدهور حاد أو تأثير عاصفة رملية"
+            status = "🚨 تنبيه حرج: تدهور حاد أو عاصفة رملية"
         elif deviation_pct > 4.0:
-            status = "⚠️ تنبيه متوسط: انحراف في أداء السلاسل (String Mismatch)"
+            status = "⚠️ تنبيه متوسط: انحراف في أداء السلاسل"
         else:
             status = "✅ الأداء طبيعي ومستقر"
             
@@ -203,7 +216,7 @@ with tab2:
         })
         
         with st.expander(f"تقرير تشخيص محول {inv_name} (الانحراف: {deviation_pct:.2f}%)"):
-            st.write(f"الحالة الحالية: {status}")
+            st.write(f"الحالة: {status}")
             st.line_chart(df_block)
 
     st.table(pd.DataFrame(fdd_summary))
@@ -211,104 +224,88 @@ with tab2:
 with tab3:
     st.subheader("🤖 غرفة عمليات أسطول الروبوتات الجافة وعمليات الطوارئ")
     r_col1, r_col2, r_col3 = st.columns(3)
-    r_col1.metric("الروبوتات النشطة في الميدان", f"{total_robots} روبوت")
-    r_col2.metric("استجابة طوارئ العواصف", "⚡ تفعيل المسح الفوري السريع" if dust_storm_active else "🛡️ الوضع الدوري العادي")
-    r_col3.metric("استهلاك المياه للغسيل", "0.0 لتر (100% تنظيف جاف)")
+    r_col1.metric("الروبوتات النشطة بالميدان", f"{total_robots} روبوت")
+    r_col2.metric("وضع الاستجابة للطوارئ", "⚡ مسح فوري مكثف" if dust_storm_active else "🛡️ دوري اعتيادي")
+    r_col3.metric("استهلاك المياه", "0.0 لتر (تنظيف جاف 100%)")
 
     st.markdown("### 🗺️ توزيع الروبوتات وحالة الكتل التشغيلية")
     zone_data = []
     for i in range(num_inverters):
         inv_name = f"Inverter Block {i+1}"
         assigned_robots = int(total_robots / num_inverters)
-        status_text = "🚨 حالة طوارئ عاصفة - تنظيف مكثف" if dust_storm_active else ("🔄 تنظيف دوري نشط" if i%2==0 else "🅿️ في محطة الشحن")
+        status_text = "🚨 طوارئ عاصفة - مسح نشط" if dust_storm_active else ("🔄 تنظيف دوري نشط" if i%2==0 else "🅿️ في محطة الشحن")
         
         zone_data.append({
             'المنطقة / الكتلة': inv_name,
             'الروبوتات المخصصة': assigned_robots,
-            'مستوى النظافة الحالي': f"{max(10, 100 - inverter_configs[inv_name]['soiling']*2.5)}%",
+            'مستوى النظافة': f"{max(10, 100 - inverter_configs[inv_name]['soiling']*2.5)}%",
             'حالة المهمة': status_text
         })
     st.table(pd.DataFrame(zone_data))
 
 with tab4:
-    st.subheader("💰 التحليل المالي بعيد المدى واقتصاديات أسطول الروبوتات (LCOE & Robot CAPEX)")
-    
-    # مؤشرات اقتصاديات الروبوتات المالية الصافية هنا
+    st.subheader("💰 التحليل المالي بعيد المدى واقتصاديات أسطول الروبوتات (LCOE & CAPEX)")
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-    f_col1.metric("استثمار أسطول الروبوتات (CAPEX)", f"{initial_robot_capex:,.0f} ر.ع")
-    f_col2.metric("إهلاك وصيانة الأسطول اليومي", f"{daily_robot_depreciation:.2f} ر.ع")
-    f_col3.metric("صافي العائد الاقتصادي اليومي", f"{net_robotic_roi:,.2f} ر.ع")
-    f_col4.metric("تكلفة الطاقة المستوية (LCOE)", f"{lcoe:.4f} ر.ع / kWh")
+    f_col1.metric("الاستثمار الأولي للروبوتات", f"{initial_robot_capex:,.0f}")
+    f_col2.metric("إهلاك الصيانة اليومي", f"{daily_robot_depreciation:.2f}")
+    f_col3.metric("صافي العائد الاقتصادي اليومي", f"{net_robotic_roi:,.2f}")
+    f_col4.metric("تكلفة الطاقة المستوية (LCOE)", f"{lcoe:.4f}")
 
     st.markdown("---")
-    
     col_fin1, col_fin2 = st.columns(2)
     with col_fin1:
-        st.markdown("#### 📊 مقارنة التكاليف التشغيلية (روبوتات جافة مقابل غسيل تقليدي)")
-        st.write("- **تكلفة المياه والعمالة اليدوية:** 0.00 ر.ع (محظورة بيئياً واقتصادياً في صحراء عمان لتطلبها ملايين اللترات).")
-        st.write(f"- **إجمالي تكلفة تشغيل الروبوتات السنوية:** {(daily_robot_depreciation * 365):,.2f} ر.ع.")
-        st.write(f"- **الإنتاج السنوي التقديري للمحطة:** {annual_generation_mwh:,.1f} MWh.")
-        
+        st.markdown("#### 📊 هيكل التكاليف التشغيلية")
+        st.write("- **تكلفة المياه والعمالة اليدوية:** معدومة تماماً (تجنباً للاستنزاف المائي والتكلفة التشغيلية العالية).")
+        st.write(f"- **تكلفة تشغيل الأسطول السنوية:** {(daily_robot_depreciation * 365):,.2f}.")
     with col_fin2:
         st.markdown("#### 💡 العائد الاستثماري الاستراتيجي (ROI)")
         if net_robotic_roi > 0:
-            st.success(f"✅ أسطول الروبوتات يحقق قيمة مضافة صافية قدرها **{net_robotic_roi:,.2f} ر.ع يومياً** عبر حماية الألواح من فقد كفاءة الإنتاج الصحراوي.")
+            st.success(f"✅ الأسطول يوفر قيمة مضافة صافية قدرها **{net_robotic_roi:,.2f} يومياً** عبر الحفاظ على كفاءة الإنتاج الصحراوي.")
         else:
-            st.warning("⚠️ إهلاك الروبوتات يتجاوز الخسارة الحالية؛ يُوصى بتعديل دورات المسح.")
+            st.warning("⚠️ إهلاك الروبوتات يتجاوز الخسارة الحالية؛ يُوصى بزيادة الفترات بين دورات المسح.")
 
 with tab5:
     st.subheader("📋 توليد أوامر الشغل الآلية (Automated Work Orders)")
-    st.markdown("يقوم هذا النظام بتوليد أوامر صيانة جاهزة وموثقة لإرسالها لفرق الفنيين الميدانيين عند رصد أي أعطال أو ترسبات حرجة.")
-
     selected_inv_wo = st.selectbox("اختر المحول لإصدار أمر الشغل", [f"Inverter Block {i+1}" for i in range(num_inverters)])
-    work_order_id = f"WO-OMAN-2026-{np.random.randint(1000, 9999)}"
+    work_order_id = f"WO-SOLAR-2026-{np.random.randint(1000, 9999)}"
     
     wo_payload = {
         "work_order_id": work_order_id,
-        "facility": "Manah Solar Complex, Oman",
+        "facility": site_name,
         "target_block": selected_inv_wo,
         "soiling_level": inverter_configs[selected_inv_wo]['soiling'],
-        "tilt_error": inverter_configs[selected_inv_wo]['tilt_error'],
         "priority": "HIGH" if dust_storm_active or inverter_configs[selected_inv_wo]['soiling'] > 15 else "NORMAL",
         "assigned_robots": int(total_robots / num_inverters),
-        "action_required": "Deploy dry-cleaning robot fleet override sweep & inspect DC wiring harnesses."
+        "action_required": "Deploy dry-cleaning robot fleet override sweep & inspect DC strings."
     }
 
     st.json(wo_payload)
-    if st.button("تصدير وإرسال أمر الشغل لفرق الصيانة الميدانية"):
-        st.success(f"✅ تم إصدار وتثبيت أمر الشغل رقم **{work_order_id}** بنجاح وإرساله لنظام الصيانة المركزي!")
+    if st.button("تصدير وإرسال أمر الشغل لفرق الصيانة"):
+        st.success(f"✅ تم إصدار أمر الشغل رقم **{work_order_id}** بنجاح!")
 
 st.markdown("---")
 st.subheader("🤖 تقرير تحليل الأصول والعمليات المؤسسية (Gemini 3.6)")
 
 if not gemini_api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
+    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل للأصول"):
-        with st.spinner("الوكيل الذكي يحلل LCOE، العواصف الرملية، أوامر الشغل، وإهلاك الروبوتات المالي..."):
+        with st.spinner("الوكيل الذكي يحلل بيانات الأداء، الاقتصاديات، وطوارئ المحطة..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
-                
                 prompt = f"""
-                أنت الرئيس التنفيذي للعمليات الهندسية وخبير إدارة محطات الطاقة الشمسية الكبرى في سلطنة عمان.
-                بيانات المحطة المالية والتشغيلية:
-                - القدرة الكلية: {total_capacity_mw} MW.
-                - الاستثمار الأولي للروبوتات (CAPEX): {initial_robot_capex:,.0f} ر.ع.
-                - إهلاك الروبوتات اليومي: {daily_robot_depreciation} ر.ع.
-                - صافي العائد الاقتصادي اليومي: {net_robotic_roi:,.2f} ر.ع.
-                - تكلفة الطاقة المستوية (LCOE): {lcoe:.4f} ر.ع / kWh.
-                - حالة العاصفة الرملية: {"نشطة" if dust_storm_active else "غير نشطة"}
+                أنت الرئيس التنفيذي للعمليات الهندسية وخبير إدارة محطات الطاقة الشمسية الكبرى.
+                بيانات المحطة:
+                - الموقع المرجعي: {site_name}
+                - القدرة: {total_capacity_mw} MW.
+                - أسطول الروبوتات: {total_robots} روبوت.
+                - حالة العاصفة: {"نشطة" if dust_storm_active else "غير نشطة"}
+                - LCOE: {lcoe:.4f} / kWh.
                 
-                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا يغطي العائد المالي للاستثمار في الروبوتات، كفاءة الأصول في حالات الطوارئ الصحراوية، والتوصيات المالية طويلة المدى.
+                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار المحطة وأداء الأسراب الروبوتية.
                 """
-                
-                interaction = client.interactions.create(
-                    model='gemini-3.6-flash',
-                    input=prompt
-                )
-                
-                st.success("تم توليد التقرير المالي والمؤسسي بنجاح!")
+                interaction = client.interactions.create(model='gemini-3.6-flash', input=prompt)
+                st.success("تم توليد التقرير بنجاح!")
                 st.markdown(interaction.output_text)
-                
             except Exception as e:
                 st.error(f"حدث خطأ أثناء الاتصال: {e}")
