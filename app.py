@@ -3,13 +3,13 @@ import pandas as pd
 import numpy as np
 import pvlib
 import requests
-import json
+import pydeck as pdk
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: 3D Enterprise Solar Digital Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Interactive 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: 3D Geospatial Enterprise Solar Digital Twin & AI O&M")
-st.markdown("منصة التوأم الرقمي المؤسسي - العرض المكاني ثلاثي الأبعاد (3D Mapping) لأسراب الروبوتات وكتل المحطة.")
+st.title("⚡ RE-OPT: Interactive 3D Geospatial Utility Solar Twin")
+st.markdown("منصة التوأم الرقمي المؤسسي - خريطة تفاعلية ثلاثية الأبعاد (3D GIS) لعرض المصفوفات، زوايا الميل، وتراكم الغبار.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -48,7 +48,7 @@ api_temp, api_wind = fetch_live_weather(lat, lon)
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
 total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=100.0, step=50.0)
 total_capacity = total_capacity_mw * 1000 
-num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverter Blocks)", [2, 4, 6, 8], index=1)
+num_inverters = st.sidebar.selectbox("عدد محولات الطاقة (Inverter Blocks)", [2, 4, 6, 8], index=2)
 
 scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA (IoT Stream)", value=True)
 
@@ -76,15 +76,15 @@ total_robots = st.sidebar.number_input("إجمالي الروبوتات النش
 initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي لأسطول الروبوتات", min_value=500000.0, max_value=5000000.0, value=1200000.0, step=50000.0)
 daily_robot_depreciation = st.sidebar.number_input("إهلاك وصيانة الروبوتات اليومي", min_value=10.0, max_value=500.0, value=45.0, step=5.0)
 
-st.sidebar.subheader("التحكم المستقل لكتل المحولات (Inverter Blocks)")
+st.sidebar.subheader("التحكم المستقل لكتل المحولات وزوايا الميل (Inverter Blocks)")
 inverter_configs = {}
 for i in range(num_inverters):
     inv_name = f"Inverter Block {i+1}"
     with st.sidebar.expander(f"إعدادات تشغيل {inv_name}", expanded=(i==0)):
         base_s = 2.0 + (i * 1.5)
         inv_soiling = st.slider(f"تراكم الغبار (%) - {inv_name}", min_value=0.0, max_value=40.0, value=float(base_s + storm_soiling_penalty), step=0.5, key=f"soiling_inv_{i}")
-        inv_tilt_err = st.slider(f"خطأ الميل (°) - {inv_name}", min_value=0.0, max_value=10.0, value=float(i * 0.8), step=0.5, key=f"tilt_inv_{i}")
-        inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt_error': inv_tilt_err}
+        inv_tilt = st.slider(f"زاوية ميل الألواح (Tilt °) - {inv_name}", min_value=5.0, max_value=45.0, value=float(20.0 + (i * 0.5)), step=1.0, key=f"tilt_inv_{i}")
+        inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt': inv_tilt}
 
 @st.cache_data
 def run_enterprise_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
@@ -120,7 +120,9 @@ def run_enterprise_simulation(latitude, longitude, total_cap, n_inv, configs, te
         bif_gain = 1.0 + (alb * bif_factor * 0.18)
         bif_base = base_power * temp_factor * bif_gain
         
-        total_degradation = cfg['soiling'] + (cfg['tilt_error'] * 0.5)
+        # الاعتماد على زاوية الميل وتراكم الغبار في حساب الفقد الفعلي
+        tilt_penalty = abs(cfg['tilt'] - 22.0) * 0.2 # افتراض زاوية مثالية 22 درجة
+        total_degradation = cfg['soiling'] + tilt_penalty
         actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
         
         mono_actual_power = mono_base * actual_factor
@@ -169,7 +171,7 @@ lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي والتقييم", 
     "🔍 التشخيص الذكي (FDD)", 
-    "🤖 أسراب الروبوتات والخريطة ثلاثية الأبعاد (3D GIS)", 
+    "🗺️ الخريطة التفاعلية ثلاثية الأبعاد (3D Solar GIS)", 
     "💰 الاقتصاديات و LCOE", 
     "📋 أوامر الشغل الآلية"
 ])
@@ -219,39 +221,79 @@ with tab2:
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("🤖 غرفة عمليات الأسراب الروبوتية والخريطة المكانية ثلاثية الأبعاد (3D Fleet GIS)")
-    st.markdown("عرض مكاني ثلاثي الأبعاد لتوزيع الروبوتات وكثافة الترسبات عبر كتل المحطة الصحراوية:")
+    st.subheader("🗺️ الخريطة التفاعلية الحية ثلاثية الأبعاد لمحطة الطاقة (3D PyDeck GIS)")
+    st.markdown("تحكم كامل وثلاثي الأبعاد في الموقع الجغرافي: تظهر أعمدة المحولات (Inverter Blocks) بارتفاعات وألوان تعكس **نسبة الغبار (Soiling %)** وزاوية ميل الألواح الحية.")
 
-    map_data_points = []
+    # تجهيز إحداثيات الكتل حول مركز الموقع المختار
+    map_blocks = []
     for i in range(num_inverters):
-        block_name = f"Block {i+1}"
-        soiling_val = inverter_configs[f"Inverter Block {i+1}"]["soiling"]
-        robots_in_block = int(total_robots / num_inverters)
+        inv_name = f"Inverter Block {i+1}"
+        cfg = inverter_configs[inv_name]
         
-        for r in range(min(15, robots_in_block)):
-            map_data_points.append({
-                'X_Coord': float(i * 5.0 + np.random.uniform(0, 3)),
-                'Y_Coord': float(r * 1.5 + np.random.uniform(0, 1)),
-                'Z_Elevation': float(soiling_val * 0.5 + np.random.uniform(0, 0.5)),
-                'Block': block_name,
-                'Robot_Status': 'Active Sweep' if not dust_storm_active else 'Emergency Override'
-            })
-            
-    df_3d = pd.DataFrame(map_data_points)
-    
-    st.scatter_chart(df_3d, x='X_Coord', y='Y_Coord', color='Block', size='Z_Elevation')
-    st.caption("ملاحظة: المحور الأفقي والرأسي يمثلان الإحداثيات الجغرافية الميدانية للكتل، وحجم النقطة يعكس كثافة الغبار وعمليات أسراب الروبوتات.")
+        # توزيع هندسي بسيط للكتل حول الإحداثيات المركزية
+        offset_lat = lat + (i * 0.012) - (num_inverters * 0.003)
+        offset_lon = lon + ((i % 2) * 0.015) - 0.007
+        
+        map_blocks.append({
+            'block_name': inv_name,
+            'lat': offset_lat,
+            'lon': offset_lon,
+            'soiling': cfg['soiling'],
+            'tilt': cfg['tilt'],
+            'elevation': float(cfg['soiling'] * 15.0 + 50.0), # ارتفاع العمود يزداد مع الغبار لتنبيه المشغل
+            'color': [200, 30, 30, 200] if cfg['soiling'] > 15 else [30, 144, 255, 200]
+        })
+        
+    df_map = pd.DataFrame(map_blocks)
 
+    # تكوين طبقة أعمدة ثلاثية الأبعاد عبر PyDeck
+    layer = pdk.Layer(
+        "ColumnLayer",
+        data=df_map,
+        get_position=["lon", "lat"],
+        get_elevation="elevation",
+        elevation_scale=10.0,
+        radius=300,
+        get_fill_color="color",
+        pickable=True,
+        auto_highlight=True,
+    )
+
+    # ضبط الكاميرا ثلاثية الأبعاد
+    view_state = pdk.ViewState(
+        latitude=lat,
+        longitude=lon,
+        zoom=11,
+        pitch=50.5, # زاوية ميل الكاميرا لإنشاء المنظور ثلاثي الأبعاد
+        bearing=25  # تدوير الأفق
+    )
+
+    r = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip={
+            "html": "<b>الكتلة:</b> {block_name} <br/> <b>نسبة الغبار:</b> {soiling}% <br/> <b>زاوية الميل:</b> {tilt}°",
+            "style": {"backgroundColor": "steelblue", "color": "white"}
+        }
+    )
+
+    st.pydeck_chart(r)
+    st.caption("💡 يمكنك تدوير الخريطة بالضغط مع الاستمرار على مفتاح اليمين في الفأرة، والتكبير والتصغير بعجلة التمرير.")
+
+    # جدول تفصيلي مرافق للخريطة
+    st.markdown("### 📊 جدول الحالة الحية لكتل المحطة المادية")
     zone_data = []
     for i in range(num_inverters):
         inv_name = f"Inverter Block {i+1}"
+        cfg = inverter_configs[inv_name]
         assigned_robots = int(total_robots / num_inverters)
         status_text = "🚨 طوارئ عاصفة - مسح نشط" if dust_storm_active else ("🔄 تنظيف دوري نشط" if i%2==0 else "🅿️ في محطة الشحن")
         
         zone_data.append({
             'المنطقة / الكتلة': inv_name,
+            'زاوية ميل الألواح (Tilt)': f"{cfg['tilt']}°",
+            'نسبة الغبار (Soiling)': f"{cfg['soiling']}%",
             'الروبوتات المخصصة': assigned_robots,
-            'مستوى النظافة': f"{max(10, 100 - inverter_configs[inv_name]['soiling']*2.5)}%",
             'حالة المهمة': status_text
         })
     st.table(pd.DataFrame(zone_data))
@@ -287,9 +329,10 @@ with tab5:
         "facility": site_name,
         "target_block": selected_inv_wo,
         "soiling_level": inverter_configs[selected_inv_wo]['soiling'],
+        "tilt_angle": inverter_configs[selected_inv_wo]['tilt'],
         "priority": "HIGH" if dust_storm_active or inverter_configs[selected_inv_wo]['soiling'] > 15 else "NORMAL",
         "assigned_robots": int(total_robots / num_inverters),
-        "action_required": "Deploy dry-cleaning robot fleet override 3D sweep & inspect DC strings."
+        "action_required": "Deploy dry-cleaning robot fleet override 3D GIS sweep & adjust panel tilt."
     }
 
     st.json(wo_payload)
@@ -303,7 +346,7 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل للأصول"):
-        with st.spinner("الوكيل الذكي يحلل بيانات الأداء، الخريطة ثلاثية الأبعاد، وطوارئ المحطة..."):
+        with st.spinner("الوكيل الذكي يحلل بيانات الخريطة ثلاثية الأبعاد، زوايا الميل، وتراكم الغبار..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 prompt = f"""
@@ -315,7 +358,7 @@ else:
                 - حالة العاصفة: {"نشطة" if dust_storm_active else "غير نشطة"}
                 - LCOE: {lcoe:.4f} / kWh.
                 
-                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار المحطة وأداء الأسراب الروبوتية عبر الخريطة المكانية ثلاثية الأبعاد.
+                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول أداء المحطة عبر الخريطة التفاعلية ثلاثية الأبعاد وزوايا ميل الألواح.
                 """
                 interaction = client.interactions.create(model='gemini-3.6-flash', input=prompt)
                 st.success("تم توليد التقرير بنجاح!")
