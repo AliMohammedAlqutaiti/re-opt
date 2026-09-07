@@ -2,16 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pvlib
-from openai import OpenAI
+import google.generativeai as genai
 
 st.set_page_config(page_title="RE-OPT: Digital Twin Dashboard", layout="wide")
 
 st.title("⚡ RE-OPT: AI-Powered Renewable Energy Digital Twin")
-st.markdown("منصة التوأم الرقمي والوكيل الذكي المعتمد على الذكاء الاصطناعي التوليدي لمراقبة وتشخيص أصول الطاقة الشمسية.")
+st.markdown("منصة التوأم الرقمي والوكيل الذكي المعتمد على Google Gemini لمراقبة وتشخيص أصول الطاقة الشمسية.")
 
-# إعدادات الشريط الجانبي
 st.sidebar.header("إعدادات المحاكاة والذكاء الاصطناعي")
-openai_api_key = st.sidebar.text_input("أدخل مفتاح OpenAI API Key", type="password")
+gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
 rated_capacity = st.sidebar.slider("قدرة المحطة (kW)", min_value=5.0, max_value=50.0, value=10.0, step=5.0)
 soiling_loss = st.sidebar.slider("نسبة فقدان الغبار (Soiling %)", min_value=0.0, max_value=30.0, value=15.0, step=1.0)
 tariff = st.sidebar.number_input("تعرفة الكهرباء (ر.ع / kWh)", value=0.030, step=0.005)
@@ -54,15 +53,17 @@ st.markdown("---")
 st.subheader("مقارنة الأداء: التوأم الرقمي مقابل الإنتاج الواقعي")
 st.line_chart(df_results)
 
-st.subheader("🤖 تقرير تحليل الوكيل الذكي (Dynamic LLM Agent Report)")
+st.subheader("🤖 تقرير تحليل الوكيل الذكي (Gemini AI Agent Report)")
 
-if not openai_api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح OpenAI API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي الديناميكي.")
+if not gemini_api_key:
+    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي.")
 else:
-    if st.button("توليد التقرير التحليلي بالذكاء الاصطناعي"):
-        with st.spinner("الوكيل الذكي يقوم بتحليل بيانات التوأم الرقمي..."):
+    if st.button("توليد التقرير التحليلي باستخدام Gemini"):
+        with st.spinner("الوكيل الذكي (Gemini) يقوم بتحليل بيانات التوأم الرقمي..."):
             try:
-                client = OpenAI(api_key=openai_api_key)
+                genai.configure(api_key=gemini_api_key)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                
                 prompt = f"""
                 أنت وكيل ذكاء اصطناعي خبير في تشخيص محطات الطاقة الشمسية.
                 بيانات المحطة الحالية:
@@ -78,14 +79,9 @@ else:
                 3. توصية تنفيذية واضحة لصناع القرار متى يتم جدولة التنظيف.
                 """
                 
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                
-                ai_report = response.choices[0].message.content
-                st.success("تم توليد التقرير بنجاح!")
-                st.markdown(ai_report)
+                response = model.generate_content(prompt)
+                st.success("تم توليد التقرير بنجاح بواسطة Gemini!")
+                st.markdown(response.text)
                 
             except Exception as e:
-                st.error(f"حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {e}")
+                st.error(f"حدث خطأ أثناء الاتصال بـ Gemini: {e}")
