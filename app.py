@@ -10,8 +10,8 @@ st.set_page_config(page_title="RE-OPT: Digital Twin Dashboard", layout="wide")
 st.title("⚡ RE-OPT: AI-Powered Renewable Energy Digital Twin")
 st.markdown("منصة التوأم الرقمي والوكيل الذكي المعتمد على Google Gemini لمراقبة وتشخيص أصول الطاقة الشمسية في مسقط.")
 
-# جلب بيانات الطقس الحية الفورية من مسقط عبر Open-Meteo API
-@st.cache_data(ttl=600)  # تحديث البيانات كل 10 دقائق
+# جلب بيانات الطقس الحية من مسقط
+@st.cache_data(ttl=600)
 def fetch_live_weather():
     try:
         url = "https://api.open-meteo.com/v1/forecast?latitude=23.58&longitude=58.38&current=temperature_2m,wind_speed_10m"
@@ -19,21 +19,26 @@ def fetch_live_weather():
         if response.status_code == 200:
             data = response.json()
             current = data.get("current", {})
-            temp = current.get("temperature_2m", 38.0)
-            wind = current.get("wind_speed_10m", 3.0)
+            temp = current.get("temperature_2m", 32.0)
+            wind = current.get("wind_speed_10m", 6.0)
             return temp, wind
     except Exception:
         pass
-    return 38.0, 3.0  # قيم افتراضية في حال تعذر الاتصال
+    return 32.0, 6.0
 
-live_temp, live_wind = fetch_live_weather()
+api_temp, api_wind = fetch_live_weather()
 
 st.sidebar.header("إعدادات المحاكاة والبيانات الحية")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
 rated_capacity = st.sidebar.slider("قدرة المحطة (kW)", min_value=5.0, max_value=50.0, value=10.0, step=5.0)
 
-st.sidebar.subheader("بيانات الطقس الحية (من مسقط الآن)")
-st.sidebar.info(f"🌡️ الحرارة الحية: {live_temp}°C | 💨 الرياح: {live_wind} m/s")
+st.sidebar.subheader("التحكم في بيانات الطقس (مطابقة الهاتف)")
+# جعل القيم قابلة للتعديل يدوياً لتطابق هاتفك تماماً
+live_temp = st.sidebar.number_input("درجة الحرارة المحيطة (°C)", min_value=10.0, max_value=55.0, value=float(api_temp), step=0.5)
+live_wind_kmh = st.sidebar.number_input("سرعة الرياح (km/h)", min_value=0.0, max_value=100.0, value=6.0, step=0.5)
+
+# تحويل سرعة الرياح من km/h إلى m/s لاستخدامها في معادلة pvlib (حيث 1 m/s = 3.6 km/h)
+live_wind = live_wind_kmh / 3.6
 
 st.sidebar.subheader("عوامل الأداء والتشخيص")
 soiling_loss = st.sidebar.slider("نسبة فقدان الغبار (Soiling %)", min_value=0.0, max_value=100.0, value=15.0, step=1.0)
@@ -55,7 +60,6 @@ def run_hybrid_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
     peak_ghi = 1000.0
     ghi = clearsky['ghi']
     
-    # حساب درجة حرارة الخلية ديناميكياً باستخدام الطقس الحي
     noct = 45.0
     cell_temp = t_amb + (ghi / 800.0) * (noct - 20.0) * (9.5 / (5.7 + 3.8 * wind))
     
@@ -74,7 +78,7 @@ def run_hybrid_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
     actual_power = ideal_thermal_power * actual_factor
     
     results = pd.DataFrame({
-        'التوأم الرقمي (مع طقس مسقط الحي والحرارة)': ideal_thermal_power,
+        'التوأم الرقمي (مع طقس مطابقة الهاتف)': ideal_thermal_power,
         'الواقع التشغيلي (بعد الغبار والميل)': actual_power
     }, index=times)
     
@@ -82,7 +86,7 @@ def run_hybrid_simulation(capacity, soiling_pct, alb, tilt_err, t_amb, wind):
 
 df_results = run_hybrid_simulation(rated_capacity, soiling_loss, albedo, tilt_error, live_temp, live_wind)
 
-loss_kwh = (df_results['التوأم الرقمي (مع طقس مسقط الحي والحرارة)'] - df_results['الواقع التشغيلي (بعد الغبار والميل)']).sum()
+loss_kwh = (df_results['التوأم الرقمي (مع طقس مطابقة الهاتف)'] - df_results['الواقع التشغيلي (بعد الغبار والميل)']).sum()
 financial_loss = loss_kwh * tariff
 
 col1, col2, col3 = st.columns(3)
@@ -91,7 +95,7 @@ col2.metric("الخسارة المالية التقديرية", f"{financial_los
 col3.metric("مستوى الكفاءة الفعلي", f"{max(0.0, 100.0 - soiling_loss - (tilt_error*0.5)):.1f}%")
 
 st.markdown("---")
-st.subheader("مقارنة الأداء: التوأم الهجين (بيانات مسقط الحية) مقابل الواقع")
+st.subheader("مقارنة الأداء: التوأم الهجين (مطابق لبيانات هاتفك) مقابل الواقع")
 st.line_chart(df_results)
 
 st.subheader("🤖 تقرير تحليل الوكيل الذكي (Interactions API & Gemini 3.6)")
@@ -100,15 +104,15 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل تقرير الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التحليلي الهجين"):
-        with st.spinner("الوكيل الذكي يدمج بيانات الطقس الحية في مسقط مع نتائج التوأم الرقمي..."):
+        with st.spinner("الوكيل الذكي يعالج بيانات الطقس والحرارة..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
                 أنت وكيل ذكاء اصطناعي خبير في هندسة الطاقة الشمسية.
-                بيانات الطقس الحية المسحوبة من مسقط حالياً:
+                بيانات الطقس المستخدمة في المحاكاة (مطابقة لهاتف المستخدم):
                 - درجة الحرارة المحيطة: {live_temp}°C
-                - سرعة الرياح: {live_wind} m/s
+                - سرعة الرياح: {live_wind_kmh} km/h
                 
                 بيانات التشخيص:
                 - قدرة المحطة: {rated_capacity} kW
@@ -119,7 +123,7 @@ else:
                 - الخسارة المالية: {financial_loss:.3f} ريال عماني
                 - التعرفة: {tariff} ر.ع/kWh
                 
-                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يربط بين ظروف الطقس الحية الحالية في مسقط والأداء الحراري والمالي للمحطة.
+                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يربط بين ظروف الطقس الحالية والأداء الحراري والمالي للمحطة.
                 """
                 
                 interaction = client.interactions.create(
