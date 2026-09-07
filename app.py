@@ -8,7 +8,7 @@ from google import genai
 st.set_page_config(page_title="RE-OPT: Enterprise Digital Twin Dashboard", layout="wide")
 
 st.title("⚡ RE-OPT: Enterprise Renewable Energy Digital Twin & O&M Platform")
-st.markdown("منصة التوأم الرقمي المؤسسي - التحكم المستقل والرسوم البيانية المخصصة لكل محول (Inverter).")
+st.markdown("منصة التوأم الرقمي المؤسسي - التحكم المستقل، الرسوم البيانية المخصصة، والتنبؤ الذكي بالصيانة.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather():
@@ -40,8 +40,12 @@ live_wind = live_wind_kmh / 3.6
 albedo = st.sidebar.slider("معامل الانعكاس والأرضية (Albedo)", min_value=0.1, max_value=1.0, value=0.35, step=0.05)
 tariff = st.sidebar.number_input("تعرفة الكهرباء المؤسسية (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.030, step=0.001, format="%.3f")
 
-# **التحكم المستقل لكل محول مع الحفاظ على الحالة (State Management)**
-st.sidebar.subheader("التحكم المستقل للمحولات (Individual Inverter Settings)")
+st.sidebar.subheader("اقتصاديات الصيانة والتنظيف الميداني")
+cleaning_cost = st.sidebar.number_input("تكلفة عقد التنظيف الشامل للمحطة (ر.ع)", min_value=10.0, max_value=500.0, value=75.0, step=5.0)
+days_since_cleaning = st.sidebar.slider("الأيام العامة المنقضية منذ آخر صيانة تنظيف", min_value=1, max_value=90, value=12, step=1)
+
+# التحكم المستقل لكل محول مع الحفاظ على الحالة
+st.sidebar.subheader("التحكم المستقل لكل محول (Individual Inverter Settings)")
 inverter_configs = {}
 
 for i in range(num_inverters):
@@ -96,9 +100,39 @@ def run_independent_inverter_simulation(total_cap, n_inv, configs, alb, t_amb, w
 
 inverter_data = run_independent_inverter_simulation(total_capacity, num_inverters, inverter_configs, albedo, live_temp, live_wind)
 
-st.subheader("📊 الرسوم البيانية للتوأم الرقمي المستقل لكل محول طاقة")
-
+# حساب إجمالي الفقد المالي والخسائر المتراكمة للمحطة لغرض التنبؤ بالصيانة
 total_plant_loss_kwh = 0
+for inv_name, df_block in inverter_data.items():
+    block_loss = (df_block['التوأم الرقمي (المرجع المثالي)'] - df_block['الواقع التشغيلي (الفعلي للمحول)']).sum()
+    total_plant_loss_kwh += block_loss
+
+daily_financial_loss = total_plant_loss_kwh * tariff
+accumulated_loss = daily_financial_loss * days_since_cleaning
+
+# خوارزمية التنبؤ بموعد الصيانة المستقبلية للمحطة
+temp_accumulated = accumulated_loss
+simulated_days_ahead = 0
+while temp_accumulated < cleaning_cost and simulated_days_ahead < 60:
+    simulated_days_ahead += 1
+    # محاكاة تصاعد الغبار المستقبلي البسيط
+    future_loss_kwh = total_plant_loss_kwh * (1.0 + (simulated_days_ahead * 0.03))
+    temp_accumulated += future_loss_kwh * tariff
+
+optimal_cleaning_window = days_since_cleaning + simulated_days_ahead
+
+st.subheader("🚨 مؤشرات التنبؤ المسبق للجدوى الاقتصادية والصيانة (Predictive Maintenance)")
+col_p1, col_p2, col_p3 = st.columns(3)
+col_p1.metric("إجمالي الفقد اليومي للمحطة", f"{total_plant_loss_kwh:.2f} kWh")
+col_p2.metric("الخسارة المتراكمة الحالية", f"{accumulated_loss:.2f} ر.ع")
+col_p3.metric("نافذة التنظيف المثلى الموصى بها", f"بعد {simulated_days_ahead} يوماً (اليوم {optimal_cleaning_window})")
+
+if accumulated_loss >= cleaning_cost:
+    st.error(f"🚨 **إنذار تشغيلي حرج:** إجمالي الخسائر المتراكمة للمحطة ({accumulated_loss:.2f} ر.ع) تجاوز تكلفة الصيانة ({cleaning_cost} ر.ع). **يجب إطلاق أمر صيانة فوري.**")
+else:
+    st.success(f"✅ **حالة أصول المحطة مستقرة:** الخسائر المتراكمة لم تصل للحد الحرج بعد. نموذج التنبؤ يوصي بجدولة الصيانة القادمة خلال **{simulated_days_ahead} يوماً**. الكهرباء المولدة تعمل بكفاءة ضمن النطاق المقبول.")
+
+st.markdown("---")
+st.subheader("📊 الرسوم البيانية للتوأم الرقمي المستقل لكل محول طاقة")
 
 for inv_name, df_block in inverter_data.items():
     st.markdown(f"**🔹 مسار أداء وتحليلات {inv_name}**")
@@ -106,39 +140,44 @@ for inv_name, df_block in inverter_data.items():
     ideal_sum = df_block['التوأم الرقمي (المرجع المثالي)'].sum()
     actual_sum = df_block['الواقع التشغيلي (الفعلي للمحول)'].sum()
     block_loss = ideal_sum - actual_sum
-    total_plant_loss_kwh += block_loss
     block_financial_loss = block_loss * tariff
     
     col1, col2, col3 = st.columns(3)
-    col1.metric(f"فقد الطاقة المفقودة ({inv_name})", f"{block_loss:.2f} kWh")
+    col1.metric(f"الطاقة المفقودة ({inv_name})", f"{block_loss:.2f} kWh")
     col2.metric(f"الخسارة المالية ({inv_name})", f"{block_financial_loss:.3f} ر.ع")
-    col3.metric(f"الإعدادات النشطة", f"غبار: {inverter_configs[inv_name]['soiling']}% | ميل: {inverter_configs[inv_name]['tilt_error']}°")
+    col3.metric(f"الإعدادات الفردية النشطة", f"غبار: {inverter_configs[inv_name]['soiling']}% | ميل: {inverter_configs[inv_name]['tilt_error']}°")
     
-    # رسوم بيانية منفصلة ومستقلة لكل محول تحتوي على التوأم الرقمي الخاص به
+    # رسوم بيانية منفصلة لكل محول تحتوي على التوأم الرقمي الخاص به
     st.line_chart(df_block)
     st.markdown("---")
 
-total_plant_financial_loss = total_plant_loss_kwh * tariff
+total_plant_financial_loss = daily_financial_loss
 
-st.subheader("🤖 تقرير تحليل الأداء المؤسسي الشامل (Gemini 3.6)")
+st.subheader("🤖 تقرير تحليل الأداء المؤسسي والجدولة التنبؤية (Gemini 3.6)")
 
 if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
-    if st.button("توليد التقرير التحليلي الموحد للمحولات المستقلة"):
-        with st.spinner("الوكيل الذكي يحلل سلوك الكتل التشغيلية المستقلة..."):
+    if st.button("توليد التقرير التحليلي المؤسسي الشامل والتنبؤي"):
+        with st.spinner("الوكيل الذكي يحلل المحولات المستقلة وخوارزميات التنبؤ بالصيانة..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 
                 prompt = f"""
-                أنت مدير هندسة الأصول التشغيلية وخبير الطاقة الشمسية.
-                بيانات إعدادات المحولات المستقلة الحالية:
-                {inverter_configs}
-                - إجمالي فقد الطاقة للمحطة: {total_plant_loss_kwh:.2f} kWh
-                - إجمالي الخسارة المالية للمحطة: {total_plant_financial_loss:.3f} ر.ع
-                - ظروف مسقط: حرارة {live_temp}°C، رياح {live_wind_kmh} km/h.
+                أنت مدير هندسة الأصول التشغيلية وخبير استراتيجي في إدارة الطاقة بقطاع الصناعة.
+                بيانات المحطة المؤسسية:
+                - إجمالي القدرة: {total_capacity} kW على {num_inverters} محولات مستقلة.
+                - إعدادات المحولات الفردية: {inverter_configs}
+                - الأيام منذ آخر صيانة عامة: {days_since_cleaning} يوماً.
+                - إجمالي فقد الطاقة للمحطة: {total_plant_loss_kwh:.2f} kWh.
+                - الخسارة المتراكمة الحالية: {accumulated_loss:.2f} ر.ع مقابل تكلفة صيانة {cleaning_cost} ر.ع.
+                - التنبؤ الذكي ل نافذة التنظيف: بعد {simulated_days_ahead} يوماً إضافياً (اليوم {optimal_cleaning_window}).
+                - ظروف مسقط الحية: حرارة {live_temp}°C، رياح {live_wind_kmh} km/h.
                 
-                قدم تقريراً تشغيلياً واحترافياً باللغة العربية يحلل الأداء المستقل لكل محول، ويقارن تأثير الفروقات الفردية في الإعدادات، ويقدم التوصيات الهندسية لإدارة الصيانة.
+                قدم تقريراً تشغيلياً واحترافياً متعمقاً باللغة العربية للإدارة العليا يتضمن:
+                1. تقييم أداء المحولات المستقلة وتحديد أيها يشكل ضغطاً أكبر على الكفاءة العامة للمحطة.
+                2. تحليل الجدوى الاقتصادية وخوارزميات التنبؤ المسبق للوقت الأمثل لتنفيذ عقود التنظيف الميداني.
+                3. التوصيات الهندسية والتشغيلية الصارمة لفرق الصيانة.
                 """
                 
                 interaction = client.interactions.create(
@@ -146,7 +185,7 @@ else:
                     input=prompt
                 )
                 
-                st.success("تم توليد التقرير بنجاح!")
+                st.success("تم توليد التقرير المؤسسي بنجاح!")
                 st.markdown(interaction.output_text)
                 
             except Exception as e:
