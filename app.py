@@ -4,12 +4,13 @@ import numpy as np
 import pvlib
 import requests
 import pydeck as pdk
+import streamlit.components.v1 as components
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Marmoul 3D Geo-Spatial Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Marmoul Geo-Spatial Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Desert Geo-Spatial Digital Twin")
-st.markdown("التوأم الرقمي الجغرافي المؤسسي - خريطة حية تفاعلية لصحراء مرمول (الوسطى) مع التحكم الميداني المباشر بأسراب الألواح.")
+st.title("⚡ RE-OPT: Marmoul Desert Geo-Spatial & 3D Twin")
+st.markdown("التوأم الرقمي الجغرافي المؤسسي - خريطة حية لصحراء مرمول (الوسطى) مع مصفوفات ألواح مستطيلة تفاعلية.")
 
 # إحداثيات صحراء مرمول (عمان)
 MARMOUL_LAT, MARMOUL_LON = 18.15, 55.18
@@ -51,46 +52,59 @@ for i in range(num_blocks):
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-# توليد إحداثيات جغرافية موزعة حول موقع مرمول الحقيقي على الخريطة
+# تجهيز مضلعات مستطيلة حقيقية (Polygons) للألواح على الخريطة بدل الأسطوانات
+polygon_data = []
 np.random.seed(42)
-map_data = []
 for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
-    # توزيع الحقول جغرافياً بمسافات صغيرة حول مركز مرمول
-    lat_offset = np.random.uniform(-0.03, 0.03)
-    lon_offset = np.random.uniform(-0.03, 0.03)
-    is_critical = cfg['soiling'] > 12.0 or dust_storm_active
+    lat_offset = np.random.uniform(-0.025, 0.025)
+    lon_offset = np.random.uniform(-0.025, 0.025)
+    center_lat = MARMOUL_LAT + lat_offset
+    center_lon = MARMOUL_LON + lon_offset
     
-    map_data.append({
+    # رسم مستطيل يمثل حقل الألواح الشمسية جغرافياً
+    dx, dy = 0.008, 0.005
+    polygon = [
+        [center_lon - dx, center_lat - dy],
+        [center_lon + dx, center_lat - dy],
+        [center_lon + dx, center_lat + dy],
+        [center_lon - dx, center_lat + dy]
+    ]
+    
+    is_critical = cfg['soiling'] > 12.0 or dust_storm_active
+    color = [239, 68, 68, 200] if is_critical else [14, 165, 233, 200] # أحمر عند الخطر، أزرق للنظيف
+    
+    polygon_data.append({
         "name": inv_name,
-        "lat": MARMOUL_LAT + lat_offset,
-        "lon": MARMOUL_LON + lon_offset,
+        "polygon": polygon,
         "soiling": cfg['soiling'],
-        "status": "Critical Dust" if is_critical else "Normal Optimal",
-        "color": [239, 68, 68, 220] if is_critical else [14, 165, 233, 220],
-        "elevation": 1200
+        "elevation": float(cfg['soiling'] * 30),
+        "status": "🚨 خطر تلوث رملي" if is_critical else "✅ أداء طبيعي",
+        "color": color
     })
 
-df_map = pd.DataFrame(map_data)
+df_poly = pd.DataFrame(polygon_data)
 
 tab1, tab2, tab3 = st.tabs([
-    "🗺️ الخريطة الجغرافية الحية لصحراء مرمول", 
-    "📊 تحليل الأداء المالي والتشغيلي", 
-    "📋 الأوامر والتقارير الذكية"
+    "🗺️ الخريطة الجغرافية ثلاثية الأبعاد لصحراء مرمول", 
+    "☀️ العرض المجسم للحقول (3D Diorama)", 
+    "💰 الاقتصاديات والتقارير الذكية"
 ])
 
 with tab1:
-    st.subheader("📍 التوزيع الجغرافي لحقول الطاقة الشمسية في صحراء مرمول (الوسطى)")
-    st.markdown("خريطة تفاعلية حية مرتبطة بإحداثيات الصحراء الحقيقية؛ توضح الحقول باللون الأزرق للحالة الطبيعية أو الأحمر عند ترسب الرمال وارتفاع خطورة التلوث:")
+    st.subheader("📍 التوزيع الجغرافي لمصفوفات الألواح المستطيلة في صحراء مرمول")
+    st.markdown("خريطة تفاعلية واضحة تماماً لصحراء مرمول بالوسطى؛ تعرض حقول الألواح كمستطيلات بارزة تتغير ألوانها بناءً على نسبة الغبار:")
 
-    # إعداد طبقات PyDeck لعرض الخريطة التفاعلية الصحراوية
+    # طبقة المضلعات المستطيلة ثلاثية الأبعاد (تغني عن الأسطوانات وعن الحاجة لمفتاح Mapbox)
     layer = pdk.Layer(
-        "ColumnLayer",
-        data=df_map,
-        get_position=["lon", "lat"],
-        get_elevation="soiling",
-        elevation_scale=150,
-        radius=800,
+        "PolygonLayer",
+        df_poly,
+        id="geojson",
+        get_polygon="polygon",
         get_fill_color="color",
+        get_elevation="elevation",
+        elevation_scale=10,
+        extruded=True,
+        wireframe=True,
         pickable=True,
         auto_highlight=True,
     )
@@ -98,40 +112,95 @@ with tab1:
     view_state = pdk.ViewState(
         latitude=MARMOUL_LAT,
         longitude=MARMOUL_LON,
-        zoom=9,
-        pitch=45,
-        bearing=15
+        zoom=10,
+        pitch=50,
+        bearing=20
     )
 
+    # استخدام خريطة CARTO التي لا تتطلب مفتاح API وتظهر معالم الأرض بوضوح
     r = pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
-        map_style="mapbox://styles/mapbox/satellite-v9", # مظهر خريطة الأقمار الصناعية المناسب للصحراء
+        map_style="carto-darkmatter",
         tooltip={"text": "الحقل: {name}\nالحالة: {status}\nنسبة الغبار: {soiling}%"}
     )
 
     st.pydeck_chart(r)
-    
-    st.info("💡 **ملاحظة:** يمكنك تحريك الخريطة، التكبير/التصغير، أو إمالة الرؤية ثلاثية الأبعاد لاستكشاف تضاريس صحراء مرمول ومواقع محولات الطاقة.")
 
 with tab2:
-    st.subheader("📊 مؤشرات الطاقة الفورية والاقتصاديات")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("موقع المحطة الجغرافي", "محافظة الوسطى، مرمول")
-    c2.metric("درجة الحرارة الحالية", f"{live_temp}°C")
-    c3.metric("سرعة الرياح", f"{live_wind} m/s")
+    st.subheader("☀️ عرض الحقول المجسمة (3D Diorama View)")
+    cols = st.columns(2)
+    for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
+        soiling = cfg['soiling']
+        tilt = cfg['tilt']
+        is_critical = soiling > 12.0 or dust_storm_active
+        panel_color = "#ef4444" if is_critical else "#1e40af"
+        status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ حقل نظيف ومنتج"
+
+        diorama_html = f"""
+        <div style="
+            background: #1e293b;
+            border: 2px solid {'#ef4444' if is_critical else '#0ea5e9'};
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 20px;
+            color: white;
+            font-family: sans-serif;
+            text-align: right;
+            direction: rtl;
+            box-shadow: 0 12px 25px rgba(0,0,0,0.6);
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">🌱 {inv_name} (مرمول)</h4>
+                <span style="background: {'#ef4444' if is_critical else '#0284c7'}; color: white; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">{status_text}</span>
+            </div>
+            
+            <div style="
+                background: linear-gradient(135deg, #d97706, #92400e);
+                border: 3px solid #78350f;
+                border-radius: 12px;
+                height: 150px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            ">
+                <div style="
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 8px;
+                    width: 80%;
+                    transform: perspective(600px) rotateX(40deg);
+                ">
+                    <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
+                    <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
+                    <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
+                    <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 6px; margin-top: 10px;">
+                <span>نسبة الغبار: <b>{soiling}%</b></span>
+                <span>زاوية الميل: <b>{tilt}°</b></span>
+            </div>
+        </div>
+        """
+        with cols[i % 2]:
+            components.html(diorama_html, height=260)
 
 with tab3:
-    st.subheader("🤖 تقرير الوكيل الذكي للعمليات")
-    if gemini_api_key and st.button("توليد تحليل الخريطة الجغرافية والمخاطر"):
+    st.subheader("💰 التحليل المالي والتقارير الذكية")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("قدرة المحطة", f"{total_capacity_mw} MW")
+    c2.metric("درجة الحرارة", f"{live_temp}°C")
+    c3.metric("سرعة الرياح", f"{live_wind} m/s")
+    
+    if gemini_api_key and st.button("توليد تقرير الذكاء الاصطناعي التشغيلي"):
         try:
             client = genai.Client(api_key=gemini_api_key)
             response = client.interactions.create(
                 model='gemini-3.6-flash',
-                input=f"قدم تحليلاً استراتيجياً لإدارة حقول الطاقة الشمسية الموزعة جغرافياً في صحراء مرمول بعمان، مع تقييم تأثير العواصف الرملية وحالة الغبار الحالية."
+                input=f"قدم تقريراً استراتيجياً لموقع محطة مرمول للطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في صحراء الوسطى بسلطنة عمان."
             )
             st.markdown(response.output_text)
         except Exception as e:
-            st.error(f"خطأ في الاتصال: {e}")
-    elif not gemini_api_key:
-        st.warning("يرجى إدخال مفتاح Gemini API في الشريط الجانبي.")
+            st.error(f"خطأ: {e}")
