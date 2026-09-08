@@ -217,20 +217,72 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     })
 df_poly = pd.DataFrame(polygon_data)
 
-tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-    "🧠 6. AI Agent",
-    "🗺️ 1. Data Layer", 
-    "📈 2. PVlib Physics", 
-    "🎯 5. Decision Engine", 
-    "☀️ Diorama 3D", 
-    "💰 4. Financial Engine",
-    "📋 7. Persistent Work Orders",
-    "🛡️ 8. Evidence Engine",
-    "🔬 4. What-If Scenarios"
+# ترتيب التبويبات من 1 إلى 9 تصاعدياً بشكل دقيق
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    "🗺️ 1. Data Layer & Quality", 
+    "📈 2. PVlib Physics Twin", 
+    "💰 3. Financial Engine", 
+    "🎯 4. Decision Engine", 
+    "🧠 5. AI Operations Agent",
+    "📋 6. Persistent Work Orders",
+    "🛡️ 7. Evidence & Audit Trail",
+    "🔬 8. Closed-Loop What-If",
+    "☀️ 9. 3D Diorama View"
 ])
 
-with tab0:
-    st.subheader("🧠 6. RE-OPT AI Operations Agent (LLM Interpretation)")
+with tab1:
+    st.subheader("🗺️ 1. Data Layer & Quality Engine")
+    st.info(f"📡 مصدر البيانات: **{data_source_mode}** | الطقس: **{weather_source}** | الطابع الزمني: **{data_timestamp}** | حالة الحساسات: **{sensor_health_status}**")
+    
+    layer = pdk.Layer(
+        "PolygonLayer", df_poly, id="wusta-map",
+        get_polygon="polygon", get_fill_color="color", get_line_color=[255, 255, 255],
+        line_width_min_pixels=3, extruded=False, pickable=True, auto_highlight=True,
+    )
+    view_state = pdk.ViewState(latitude=AL_WUSTA_LAT, longitude=AL_WUSTA_LON, zoom=9, pitch=20, bearing=0)
+    r = pdk.Deck(layers=[layer], initial_view_state=view_state, map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json", tooltip={"text": "الحقل: {name}\nالحالة: {status}\nنسبة الغبار: {soiling}%"})
+    st.pydeck_chart(r)
+
+with tab2:
+    st.subheader("📈 2. Real PVlib Physics Engine")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
+    c2.metric("فارق الطاقة (AC)", f"{abs(total_energy_diff_kwh):,.1f} kWh")
+    c3.metric("التعرفة", f"{tariff:.3f} / kWh")
+    c4.metric("مؤشر PM10", f"{live_pm10:.1f} µg/m³")
+    st.markdown("---")
+    st.line_chart(df_total)
+
+with tab3:
+    st.subheader("💰 3. Real Financial Engine (LCOE, NPV, IRR)")
+    f1, f2, f3, f4 = st.columns(4)
+    f1.metric("تكلفة LCOE المخصومة", f"{discounted_lcoe:.4f} ر.ع/kWh")
+    f2.metric("صافي القيمة الحالية (NPV)", f"{approx_npv:,.0f} ر.ع")
+    f3.metric("معدل العائد الداخلي (IRR)", f"{approx_irr*100:.1f}%")
+    f4.metric("صافي العائد اليومي للروبوتات", f"{net_robotic_roi:,.2f} ر.ع")
+
+with tab4:
+    st.subheader("🎯 4. Decision Engine & Robotic Dispatch")
+    cleaning_report = []
+    block_cap_mw = total_capacity_mw / num_blocks
+    for inv_name, cfg in inverter_configs.items():
+        soiling = cfg['soiling']
+        loss_kwh = (block_cap_mw * 1000) * (soiling / 100.0) * 5.5
+        loss_omr = loss_kwh * tariff
+        net_b = loss_omr - 45.0
+        
+        if sensor_health_status.startswith("INVALID"):
+            decision = "⛔ محظور (خطأ في الحساسات)"
+        elif net_b > 0 and soiling > 12.0:
+            decision = f"🚀 **تنظيف فوري** (عائد صافٍ: +{net_b:,.1f} ر.ع)"
+        else:
+            decision = "✅ مؤجل (غير مجدٍ مالياً حالياً)"
+            
+        cleaning_report.append({"الحقل": inv_name, "نسبة الغبار": f"{soiling}%", "الإيراد المهدد": f"{loss_omr:,.1f} ر.ع", "قرار المحرك": decision})
+    st.table(pd.DataFrame(cleaning_report))
+
+with tab5:
+    st.subheader("🧠 5. RE-OPT AI Operations Agent (LLM Interpretation)")
     st.markdown("يقوم الذكاء الاصطناعي حصراً بتفسير النتائج المحسوبة هندسياً ومالياً دون اختلاق أي أرقام:")
 
     agent_target_block = st.selectbox("اختر الحقل للتحليل بواسطة الوكيل الذكي", list(inverter_configs.keys()), key="agent_sel")
@@ -297,84 +349,12 @@ with tab0:
             })
             st.success(f"✅ تم إصدار وحفظ أمر الشغل برقم `{new_id}` بنجاح في قاعدة البيانات المستدامة!")
 
-with tab1:
-    st.subheader("🗺️ 1. Data Layer & Quality Engine")
-    st.info(f"📡 مصدر البيانات: **{data_source_mode}** | الطقس: **{weather_source}** | الطابع الزمني: **{data_timestamp}** | حالة الحساسات: **{sensor_health_status}**")
-    
-    layer = pdk.Layer(
-        "PolygonLayer", df_poly, id="wusta-map",
-        get_polygon="polygon", get_fill_color="color", get_line_color=[255, 255, 255],
-        line_width_min_pixels=3, extruded=False, pickable=True, auto_highlight=True,
-    )
-    view_state = pdk.ViewState(latitude=AL_WUSTA_LAT, longitude=AL_WUSTA_LON, zoom=9, pitch=20, bearing=0)
-    r = pdk.Deck(layers=[layer], initial_view_state=view_state, map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json", tooltip={"text": "الحقل: {name}\nالحالة: {status}\nنسبة الغبار: {soiling}%"})
-    st.pydeck_chart(r)
-
-with tab2:
-    st.subheader("📈 2. Real PVlib Physics Engine")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
-    c2.metric("فارق الطاقة (AC)", f"{abs(total_energy_diff_kwh):,.1f} kWh")
-    c3.metric("التعرفة", f"{tariff:.3f} / kWh")
-    c4.metric("مؤشر PM10", f"{live_pm10:.1f} µg/m³")
-    st.markdown("---")
-    st.line_chart(df_total)
-
-with tab3:
-    st.subheader("🎯 5. Decision Engine & Robotic Dispatch")
-    cleaning_report = []
-    block_cap_mw = total_capacity_mw / num_blocks
-    for inv_name, cfg in inverter_configs.items():
-        soiling = cfg['soiling']
-        loss_kwh = (block_cap_mw * 1000) * (soiling / 100.0) * 5.5
-        loss_omr = loss_kwh * tariff
-        net_b = loss_omr - 45.0
-        
-        if sensor_health_status.startswith("INVALID"):
-            decision = "⛔ محظور (خطأ في الحساسات)"
-        elif net_b > 0 and soiling > 12.0:
-            decision = f"🚀 **تنظيف فوري** (عائد صافٍ: +{net_b:,.1f} ر.ع)"
-        else:
-            decision = "✅ مؤجل (غير مجدٍ مالياً حالياً)"
-            
-        cleaning_report.append({"الحقل": inv_name, "نسبة الغبار": f"{soiling}%", "الإيراد المهدد": f"{loss_omr:,.1f} ر.ع", "قرار المحرك": decision})
-    st.table(pd.DataFrame(cleaning_report))
-
-with tab4:
-    st.subheader("☀️ عرض الحقول المجسمة (3D Diorama View)")
-    cols = st.columns(2)
-    for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
-        soiling = cfg['soiling']
-        tilt = cfg['tilt']
-        is_critical = cfg['soiling'] > 12.0 or dust_storm_active
-        panel_color = "#ef4444" if is_critical else "#1e40af"
-        
-        diorama_html = f"""
-        <div style="background: #1e293b; border: 2px solid {'#ef4444' if is_critical else '#0ea5e9'}; border-radius: 16px; padding: 16px; margin-bottom: 20px; color: white; font-family: sans-serif; text-align: right; direction: rtl;">
-            <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">🌱 {inv_name}</h4>
-            <div style="background: linear-gradient(135deg, #d97706, #92400e); border-radius: 10px; height: 110px; display: flex; align-items: center; justify-content: center; margin-top: 10px;">
-                <div style="background: {panel_color}; width: 70%; height: 30px; border-radius: 4px;"></div>
-            </div>
-            <p style="font-size: 12px; margin-top: 8px;">الغبار: <b>{soiling}%</b> | الميل: <b>{tilt}°</b></p>
-        </div>
-        """
-        with cols[i % 2]:
-            components.html(diorama_html, height=210)
-
-with tab5:
-    st.subheader("💰 4. Real Financial Engine (LCOE, NPV, IRR)")
-    f1, f2, f3, f4 = st.columns(4)
-    f1.metric("تكلفة LCOE المخصومة", f"{discounted_lcoe:.4f} ر.ع/kWh")
-    f2.metric("صافي القيمة الحالية (NPV)", f"{approx_npv:,.0f} ر.ع")
-    f3.metric("معدل العائد الداخلي (IRR)", f"{approx_irr*100:.1f}%")
-    f4.metric("صافي العائد اليومي للروبوتات", f"{net_robotic_roi:,.2f} ر.ع")
-
 with tab6:
-    st.subheader("📋 7. Persistent Work Orders (Database Store)")
+    st.subheader("📋 6. Persistent Work Orders (Database Store)")
     st.dataframe(pd.DataFrame(st.session_state.persistent_work_orders), use_container_width=True)
 
 with tab7:
-    st.subheader("🛡️ 8. Evidence Engine (Immutable Audit Record & Model Version)")
+    st.subheader("🛡️ 7. Evidence Engine (Immutable Audit Record & Model Version)")
     audit_id = "LOSS-EVT-OMAN-2026-902"
     raw_str = f"{audit_id}-{data_timestamp}-{live_pm10}-{total_energy_diff_kwh}-v2.4.1"
     data_hash = hashlib.sha256(raw_str.encode()).hexdigest()
@@ -394,7 +374,7 @@ with tab7:
     st.info("ℹ️ ملاحظة نظام التدقيق: السجل محمي ببصمة SHA-256 ومرفق بنسخة النموذج الفيزيائي للتدقيق القانوني والتأميني.")
 
 with tab8:
-    st.subheader("🔬 4. Closed-Loop What-If Scenario Engine")
+    st.subheader("🔬 8. Closed-Loop What-If Scenario Engine")
     scen_col1, scen_col2 = st.columns(2)
     with scen_col1:
         sim_storm_inc = st.slider("معدل زيادة العواصف (% الغبار)", 0, 100, 20)
@@ -427,3 +407,24 @@ with tab8:
     res1.metric("الإنتاج السنوي بعد السيناريو", f"{scen_gen_mwh:,.1f} MWh")
     res2.metric("تكلفة LCOE المعدلة بالنموذج", f"{scen_lcoe:.4f} ر.ع", delta=f"{scen_lcoe - discounted_lcoe:+.4f} ر.ع", delta_color="inverse")
     res3.metric("CAPEX الروبوتات المعدل", f"{scen_capex:,.0f} ر.ع")
+
+with tab9:
+    st.subheader("☀️ 9. 3D Diorama View")
+    cols = st.columns(2)
+    for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
+        soiling = cfg['soiling']
+        tilt = cfg['tilt']
+        is_critical = cfg['soiling'] > 12.0 or dust_storm_active
+        panel_color = "#ef4444" if is_critical else "#1e40af"
+        
+        diorama_html = f"""
+        <div style="background: #1e293b; border: 2px solid {'#ef4444' if is_critical else '#0ea5e9'}; border-radius: 16px; padding: 16px; margin-bottom: 20px; color: white; font-family: sans-serif; text-align: right; direction: rtl;">
+            <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">🌱 {inv_name}</h4>
+            <div style="background: linear-gradient(135deg, #d97706, #92400e); border-radius: 10px; height: 110px; display: flex; align-items: center; justify-content: center; margin-top: 10px;">
+                <div style="background: {panel_color}; width: 70%; height: 30px; border-radius: 4px;"></div>
+            </div>
+            <p style="font-size: 12px; margin-top: 8px;">الغبار: <b>{soiling}%</b> | الميل: <b>{tilt}°</b></p>
+        </div>
+        """
+        with cols[i % 2]:
+            components.html(diorama_html, height=210)
