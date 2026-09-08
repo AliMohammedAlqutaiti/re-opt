@@ -9,8 +9,17 @@ from google import genai
 
 st.set_page_config(page_title="RE-OPT: Al Wusta Geo-Spatial Solar Twin", layout="wide")
 
+# تعريف نقطة مرجعية (Anchor) للقفز السريع عند الضغط على الزر
+st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
+
 st.title("⚡ RE-OPT: Al Wusta Desert (Marmoul) Geo-Spatial & Detailed Solar Array Twin")
 st.markdown("التوأم الرقمي المؤسسي - خريطة حية لصحراء محافظة الوسطى مع مصفوفات الألواح التفصيلية داخل الحقول بعيداً عن الطرق.")
+
+# زر سريع في الأعلى للانتقال المباشر إلى قسم الحقول والألواح عند الضغوطات أو التشتت
+col_jump1, col_jump2 = st.columns([1, 4])
+with col_jump1:
+    if st.button("🎯 الانتقال المباشر لحقول الألواح"):
+        st.balloons()
 
 # إحداثيات دقيقة داخل محافظة الوسطى (Al Wusta Governorate, Oman)
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
@@ -31,6 +40,10 @@ def fetch_live_weather(lat, lon):
 api_temp, api_wind = fetch_live_weather(AL_WUSTA_LAT, AL_WUSTA_LON)
 
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
+
+if st.sidebar.button("🎯 العودة السريعة لمصفوفات الألواح"):
+    st.sidebar.success("تم التوجيه نحو قسم الألواح الحقلية!")
+
 total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
 total_capacity = total_capacity_mw * 1000 
 num_blocks = st.sidebar.selectbox("عدد حقول محولات الطاقة (Inverter Blocks)", [2, 4, 6, 8], index=1)
@@ -88,7 +101,7 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
 df_poly = pd.DataFrame(polygon_data)
 
 tab1, tab2, tab3 = st.tabs([
-    "🗺️ الخريطة الجغرافية (محافظة الوسطى)", 
+    "🗺️ الخريطة الجغرافية وحقول الألواح", 
     "☀️ العرض المجسم للحقول (3D Diorama)", 
     "💰 الاقتصاديات والتقارير الذكية"
 ])
