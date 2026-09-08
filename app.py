@@ -3,13 +3,12 @@ import pandas as pd
 import numpy as np
 import pvlib
 import requests
-import pydeck as pdk
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Marmoul 3D Panels Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D PV Panels Matrix")
-st.markdown("التوأم الرقمي المؤسسي - العرض الواقعي ثلاثي الأبعاد لمصفوفات الألواح الشمسية في مرمول (الوسطى) مع التلوين الديناميكي (أزرق للطبيعي، أحمر لتراكم الرمال).")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Visual Panel Matrix")
+st.markdown("التوأم الرقمي المؤسسي - العرض البصري الاحترافي لألواح مرمول (الوسطى) مع التلوين الديناميكي للحالة التشغيلية.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -147,7 +146,7 @@ lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي لمحطة مرمول", 
     "🔍 التشخيص الذكي (FDD)", 
-    "☀️ خريطة الألواح الحقيقية ثلاثية الأبعاد (3D PV Panels)", 
+    "☀️ العرض المرئي ثلاثي الأبعاد للألواح", 
     "💰 الاقتصاديات و LCOE", 
     "📋 أوامر الشغل الآلية"
 ])
@@ -197,87 +196,80 @@ with tab2:
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("☀️ الخريطة الواقعية ثلاثية الأبعاد لمصفوفات الألواح الشمسية")
-    st.markdown("عرض هندسي ثلاثي الأبعاد يوضح **شكل الألواح المستطيلة المسطحة** (بدلاً من الأنابيب الدائرية) فوق موقع مرمول بمحافظة الوسطى؛ **الألواح السليمة تظهر باللون الأزرق، بينما الألواح المتسخة تعلوها طبقة حمراء لتحذير المشغلين**.")
+    st.subheader("☀️ العرض البصري ثلاثي الأبعاد لألواح مرمول")
+    st.markdown("تصميم بصري احترافي يحاكي شكل اللوحة الشمسية الإطارية ذات التقسيمات الشبكية (Grid)، مع التلوين التلقائي باللون الأزرق للأداء السليم أو الأحمر عند ترسب الرمال:")
 
-    # بناء مضلعات مستطيلة دقيقة تمثل الألواح الشمسية (PolygonLayer)
-    polygons_data = []
-    for i in range(num_blocks):
-        inv_name = f"Inverter Block {i+1}"
-        cfg = inverter_configs[inv_name]
+    # توليد بطاقات بصرية HTML/CSS لكل محول تحاكي تماماً شكل اللوحة في الصورة المطلوبة
+    cols = st.ncols(2) if hasattr(st, "ncols") else st.columns(2)
+    
+    for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
         soiling = cfg['soiling']
         tilt = cfg['tilt']
+        is_critical = soiling > 12.0 or dust_storm_active
         
-        c_lat = lat + (i * 0.005) - (num_blocks * 0.001)
-        c_lon = lon + ((i % 2) * 0.008) - 0.004
-        
-        # تحديد أركان مستطيل اللوحة (Polygon Coordinates)
-        d_lat, d_lon = 0.002, 0.003
-        polygon_coords = [
-            [c_lon - d_lon, c_lat - d_lat],
-            [c_lon + d_lon, c_lat - d_lat],
-            [c_lon + d_lon, c_lat + d_lat],
-            [c_lon - d_lon, c_lat + d_lat]
-        ]
-        
-        # التلوين والتعديل حسب نسبة الغبار
-        if soiling > 12.0 or dust_storm_active:
-            poly_color = [255, 40, 40, 220]  # أحمر للألواح المتسخة والمحرجة
-            status_label = "🚨 تلوث رملي حرج (أحمر)"
-        else:
-            poly_color = [30, 144, 255, 220] # أزرق للألواح النظيفة
-            status_label = "✅ أداء سليم (أزرق)"
+        # اختيار لون الإطار والشبكة بناءً على نسبة الغبار (أزرق طبيعي أو أحمر تحذيري)
+        border_color = "#ef4444" if is_critical else "#3b82f6"
+        bg_cells = "#fee2e2" if is_critical else "#eff6ff"
+        cell_grid_border = "#fca5a5" if is_critical else "#93c5fd"
+        cell_bg = "#fef2f2" if is_critical else "#dbeafe"
+        status_text = "🚨 تلوث رملي حرج (يحتاج تنظيف جاف)" if is_critical else "✅ أداء طبيعي نظيف"
+
+        html_panel_card = f"""
+        <div style="
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 3px solid {border_color};
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+            color: white;
+            font-family: sans-serif;
+            text-align: right;
+            direction: rtl;
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; color: #f8fafc; font-size: 18px;">📌 {inv_name}</h3>
+                <span style="background: {border_color}; color: white; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: bold;">{status_text}</span>
+            </div>
             
-        polygons_data.append({
-            'block_name': inv_name,
-            'polygon': polygon_coords,
-            'elevation': float(tilt * 10.0 + 20.0), # ارتفاع اللوحة بناءً على زاوية الميل
-            'soiling': soiling,
-            'tilt': tilt,
-            'status': status_label,
-            'color': poly_color
-        })
-        
-    df_polygons = pd.DataFrame(polygons_data)
+            <!-- محاكاة بصرية لشكل اللوحة التقسيمية (Grid) -->
+            <div style="
+                background: {bg_cells};
+                border: 2px solid {border_color};
+                border-radius: 8px;
+                padding: 10px;
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                grid-template-rows: repeat(3, 1fr);
+                gap: 6px;
+                height: 120px;
+                margin-bottom: 15px;
+            ">
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
+            </div>
 
-    # استخدام PolygonLayer لرسم ألواح مسطحة ومستطيلة حقيقية
-    panel_polygon_layer = pdk.Layer(
-        "PolygonLayer",
-        data=df_polygons,
-        get_polygon="polygon",
-        get_elevation="elevation",
-        elevation_scale=1.0,
-        get_fill_color="color",
-        get_line_color=[255, 255, 255],
-        line_width_min_pixels=2,
-        extruded=True, # جعل الألواح مجسمة ثلاثية الأبعاد بارتفاع زاوية الميل
-        pickable=True,
-        auto_highlight=True,
-    )
-
-    view_state_panels = pdk.ViewState(
-        latitude=lat,
-        longitude=lon,
-        zoom=13.5,
-        pitch=55.0,
-        bearing=25
-    )
-
-    r_panels_poly = pdk.Deck(
-        layers=[panel_polygon_layer],
-        initial_view_state=view_state_panels,
-        map_style="mapbox://styles/mapbox/satellite-v9",
-        tooltip={
-            "html": "<b>المحول:</b> {block_name} <br/> <b>الحالة:</b> {status} <br/> <b>نسبة الغبار:</b> {soiling}% <br/> <b>زاوية الميل:</b> {tilt}°",
-            "style": {"backgroundColor": "#0f172a", "color": "#f8fafc", "border": "1px solid #38bdf8"}
-        }
-    )
-
-    st.pydeck_chart(r_panels_poly)
-    st.caption("💡 الخريطة تعرض الآن أشكال الألواح كمستطيلات مسطحة ومجسمة بزوايا الميل، وتتلون بالأحمر أو الأزرق بحسب نظافة الألواح.")
+            <div style="display: flex; justify-content: space-between; font-size: 14px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px;">
+                <span> نسبة الغبار: <b>{soiling}%</b></span>
+                <span> زاوية الميل: <b>{tilt}°</b></span>
+            </div>
+        </div>
+        """
+        with cols[i % 2]:
+            st.markdown(html_panel_card, unsafe_allow_html=True)
 
     # جدول الحالة المرئية للمحولات
-    st.markdown("### 📊 جدول الحالة المرئية لمصفوفات مرمول")
+    st.markdown("### 📊 جدول البيانات التشغيلية لمصفوفات مرمول")
     table_view_data = []
     for i in range(num_blocks):
         inv_name = f"Inverter Block {i+1}"
@@ -289,7 +281,7 @@ with tab3:
             'محول الطاقة': inv_name,
             'نسبة الغبار (Soil)': f"{soiling}%",
             'زاوية الميل (Tilt)': f"{cfg['tilt']}°",
-            'اللون الظاهري على الخريطة': status_text,
+            'الحالة البصرية': status_text,
             'الروبوتات المخصصة': int(total_robots / num_blocks)
         })
     st.table(pd.DataFrame(table_view_data))
@@ -326,7 +318,7 @@ with tab5:
         "target_block": selected_block_wo,
         "soil_percentage": inverter_configs[selected_block_wo]['soiling'],
         "tilt_angle": inverter_configs[selected_block_wo]['tilt'],
-        "map_color_indicator": "RED (Critical Soil)" if inverter_configs[selected_block_wo]['soiling'] > 12.0 else "BLUE (Normal)",
+        "visual_status": "RED (Critical Soil)" if inverter_configs[selected_block_wo]['soiling'] > 12.0 else "BLUE (Normal)",
         "priority": "HIGH" if dust_storm_active or inverter_configs[selected_block_wo]['soiling'] > 12.0 else "NORMAL",
         "assigned_robots": int(total_robots / num_blocks),
         "action_required": "Deploy dry-cleaning robot swarm to targeted red-shaded panel blocks."
@@ -343,7 +335,7 @@ if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
 else:
     if st.button("توليد التقرير التشغيلي الشامل لموقع مرمول"):
-        with st.spinner("الوكيل الذكي يحلل أداء الألواح المستطيلة ومصفوفات مرمول..."):
+        with st.spinner("الوكيل الذكي يحلل أداء الألواح وتوزيع الألوان البصرية..."):
             try:
                 client = genai.Client(api_key=gemini_api_key)
                 prompt = f"""
@@ -355,7 +347,7 @@ else:
                 - حالة العاصفة: {"نشطة" if dust_storm_active else "غير نشطة"}
                 - LCOE: {lcoe:.4f} / kWh.
                 
-                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح المستطيلة فوق خريطة مرمول، وتوزيع التنبيهات الحمراء (للغبار الحرج) والزرقاء (للأداء العادي).
+                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح الإطارية المستطيلة، وتوزيع المؤشرات البصرية الحمراء والزرقاء للغبار.
                 """
                 interaction = client.interactions.create(model='gemini-3.6-flash', input=prompt)
                 st.success("تم توليد التقرير بنجاح!")
