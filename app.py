@@ -102,6 +102,24 @@ if 'persistent_work_orders' not in st.session_state:
         }
     ]
 
+# 🚀 إعادة إضافة لوحة التحكم السريعة لأوامر الشغل في الشريط الجانبي (Quick Order Panel)
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚡ Quick Order Panel (SCADA)")
+quick_target_block = st.sidebar.selectbox("الحقل المستهدف لأمر الشغل الفوري", list(inverter_configs.keys()), key="quick_block")
+quick_priority = st.sidebar.selectbox("أولوية أمر العمل", ["Normal Priority", "High Priority", "Emergency Dispatch"])
+if st.sidebar.button("🚀 إصدار أمر شغل فوري (Quick Dispatch)"):
+    quick_wo_id = f"WO-ALWUSTA-QUICK-{np.random.randint(1000, 9999)}"
+    st.session_state.persistent_work_orders.append({
+        "work_order_id": quick_wo_id,
+        "created_timestamp": data_timestamp,
+        "created_by": "Quick Operator Panel",
+        "target_block": quick_target_block,
+        "soil_percentage": inverter_configs[quick_target_block]['soiling'],
+        "priority": quick_priority,
+        "status": "Dispatched & Active"
+    })
+    st.sidebar.success(f"✅ تم إصدار أمر الشغل الفوري `{quick_wo_id}` بنجاح!")
+
 @st.cache_data
 def run_full_pvlib_pipeline_custom(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, custom_soiling_mod=1.0):
     tz = 'Asia/Muscat'
@@ -217,7 +235,6 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     })
 df_poly = pd.DataFrame(polygon_data)
 
-# ترتيب التبويبات من 1 إلى 9 تصاعدياً بشكل دقيق
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "🗺️ 1. Data Layer & Quality", 
     "📈 2. PVlib Physics Twin", 
