@@ -255,7 +255,7 @@ with tab5:
         try:
             client = genai.Client(api_key=gemini_api_key)
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.6-flash',
                 contents=f"قدم تقريراً مالياً واقتصادياً متعمقاً لإدارة الأصول لمحطة الوسطى بقدرة {total_capacity_mw} ميجاوات وتكلفة LCOE تبلغ {lcoe:.4f}."
             )
             st.markdown(response.text)
@@ -314,7 +314,7 @@ with tab7:
                         f"لحدث خسارة رقم {event_id} في صحراء الوسطى بعمان، بقيمة خسارة تبلغ {total_loss_omr:,.3f} ريال عماني "
                         f"بسبب عاصفة غبارية بتركيز PM10 بلغ {live_pm10:.1f} وسرعة رياح {live_wind} م/ث."
                     )
-                    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt_text)
+                    response = client.models.generate_content(model='gemini-3.6-flash', contents=prompt_text)
                     st.markdown("### 📄 تقرير مطالبة التأمين الرسمي:")
                     st.markdown(response.text)
                 except Exception as e:
@@ -353,7 +353,7 @@ with tab8:
                         f"الفرضيات: زيادة العواصف بنسبة {sim_storm_increase}%, إضافة {sim_extra_robots} روبوت تنظيف، "
                         f"لتصبح تكلفة LCOE الافتراضية {simulated_new_lcoe:.4f} ر.ع. قدم توصيات تنفيذية للإدارة العليا."
                     )
-                    response = client.models.generate_content(model='gemini-2.5-flash', contents=scenario_prompt)
+                    response = client.models.generate_content(model='gemini-3.6-flash', contents=scenario_prompt)
                     st.markdown("### 📈 نتيجة التحليل الاستراتيجي:")
                     st.markdown(response.text)
                 except Exception as e:
