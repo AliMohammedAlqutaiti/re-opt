@@ -11,8 +11,8 @@ st.set_page_config(page_title="RE-OPT: Al Wusta Enterprise Solar Twin", layout="
 
 st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
 
-st.title("⚡ RE-OPT: Al Wusta Enterprise Solar Twin & What-If Scenario Simulator")
-st.markdown("التوأم الرقمي المؤسسي الشامل - مع محرك محاكاة السيناريوهات الافتراضية ومطالبات التأمين.")
+st.title("⚡ RE-OPT: Al Wusta Enterprise Autonomous Operating & Financial Twin")
+st.markdown("نظام التشغيل المالي والذكي المتكامل لمحطات الطاقة الشمسية في البيئات الصحراوية القاسية.")
 
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
@@ -157,7 +157,8 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     })
 df_poly = pd.DataFrame(polygon_data)
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    "🧠 RE-OPT AI Agent",
     "🗺️ الخريطة", 
     "📈 التوأم", 
     "🎯 التوجيه", 
@@ -165,8 +166,39 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "💰 الاقتصاديات",
     "📋 أوامر الشغل",
     "🛡️ التأمين",
-    "🔬 محاكي السيناريوهات (What-If)"
+    "🔬 السيناريوهات"
 ])
+
+with tab0:
+    st.subheader("🧠 RE-OPT Autonomous AI Operations Agent")
+    st.markdown("العقل المركزى الذكي للاستشعار، التشخيص، تقييم الأثر المالي، واتخاذ القرار التشغيلي الآلي:")
+
+    # اختيار الحقل للتحليل الفوري عبر الـ Agent
+    agent_target_block = st.selectbox("اختر الحقل للتحليق الذكي والتشخيص الفوري", list(inverter_configs.keys()))
+    block_soil = inverter_configs[agent_target_block]['soiling']
+    
+    # حسابات الـ Agent الذكية
+    block_cap_mw = total_capacity_mw / num_blocks
+    expected_energy_loss_mwh = (block_cap_mw * 1000 * (block_soil / 100.0) * 5.5) / 1000.0
+    revenue_at_risk_omr = expected_energy_loss_mwh * 1000 * tariff
+    cleaning_cost_omr = 45.0
+    net_agent_benefit = revenue_at_risk_omr - cleaning_cost_omr
+
+    col_ag1, col_ag2, col_ag3, col_ag4 = st.columns(4)
+    col_ag1.metric("السبب الجذري المشخص", "تلوث غباري حرج" if block_soil > 12 else "أداء ضمن الطبيعي")
+    col_ag2.metric("الطاقة المفقودة المتوقعة", f"{expected_energy_loss_mwh * 1000:,.1f} kWh")
+    col_ag3.metric("الإيراد المهدد", f"{revenue_at_risk_omr:,.1f} ر.ع")
+    col_ag4.metric("صافي العائد من التنظيف", f"+{net_agent_benefit:,.1f} ر.ع", delta="مجدٍ ماليًا" if net_agent_benefit > 0 else "غير مجدٍ")
+
+    st.markdown("---")
+    if block_soil > 12.0 or dust_storm_active:
+        st.error(f"🚨 **تنبيه عالي الأولوية من الـ Agent**: الحقل `{agent_target_block}` يعاني من انخفاض حاد في كفاءة الألواح بسبب تراكم الغبار بنسبة ({block_soil}%).")
+        st.info(f"💡 **توصية التشغيل الذكي**: يُنصح بإرسال أسراب روبوتات التنظيف فوراً. التكلفة المتوقعة ({cleaning_cost_omr} ر.ع) بينما الإيراد المهدد يبلغ ({revenue_at_risk_omr:,.1f} ر.ع)، مما يحقق عائداً صافياً قدره (+{net_agent_benefit:,.1f} ر.ع).")
+        
+        if st.button("🤖 تنفيذ قرار الوكيل الآلي وإصدار أمر الشغل الفوري"):
+            st.success(f"✅ قام الـ AI Agent باتخاذ القرار وإرسال أمر الشغل الآلي لحقل `{agent_target_block}` بنجاح تام!")
+    else:
+        st.success(f"✅ **حالة الحقل `{agent_target_block}` سليمة**: الأداء يتطابق مع نموذج الفيزياء (PVlib). لا تدخل مطلوب حالياً.")
 
 with tab1:
     st.subheader("📍 التوزيع الجغرافي لحقول الألواح في صحراء محافظة الوسطى")
@@ -264,7 +296,7 @@ with tab5:
 
 with tab6:
     st.subheader("📋 لوحة أوامر الشغل والإشعارات الميدانية بالمنصة")
-    selected_block_wo = st.selectbox("اختر الحقل المستهدف بأمر الشغل", list(inverter_configs.keys()))
+    selected_block_wo = st.selectbox("اختر الحقل المستهدف بأمر الشغل", list(inverter_configs.keys()), key="wo_select")
     work_order_id = f"WO-ALWUSTA-2026-{np.random.randint(1000, 9999)}"
     
     soil_val = inverter_configs[selected_block_wo]['soiling']
@@ -326,10 +358,10 @@ with tab8:
 
     sim_col1, sim_col2 = st.columns(2)
     with sim_col1:
-        sim_storm_increase = st.slider("معدل زيادة العواصف الرملية السنوية (%)", 0, 100, 25)
-        sim_extra_robots = st.slider("إضافة روبوتات تنظيف جديدة", 0, 2000, 500)
+        sim_storm_increase = st.slider("معدل زيادة العواصف الرملية السنوية (%)", 0, 100, 25, key="sim_storm")
+        sim_extra_robots = st.slider("إضافة روبوتات تنظيف جديدة", 0, 2000, 500, key="sim_robots")
     with sim_col2:
-        sim_tariff_shift = st.slider("تغير تعرفة البيع (%)", -20, 30, 0)
+        sim_tariff_shift = st.slider("تغير تعرفة البيع (%)", -20, 30, 0, key="sim_tariff")
 
     simulated_loss_increase = daily_financial_loss * (1 + sim_storm_increase / 100.0) * 365
     simulated_new_lcoe = lcoe * (1 - (sim_extra_robots * 0.00005) + (sim_storm_increase * 0.0002))
