@@ -9,10 +9,10 @@ from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul Geo-Spatial Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Desert Geo-Spatial & Solar Twin")
-st.markdown("التوأم الرقمي الجغرافي المؤسسي - خريطة حية لصحراء مرمول (الوسطى) مع حقول ألواح أفقية تفاعلية.")
+st.title("⚡ RE-OPT: Marmoul Desert Geo-Spatial & Detailed Solar Array Twin")
+st.markdown("التوأم الرقمي المؤسسي - خريطة حية لصحراء مرمول مع مصفوفات الألواح التفصيلية داخل الحقول بعيداً عن الطرق.")
 
-# إحداثيات صحراء مرمول الحقيقية (عمان)
+# إحداثيات صحراء مرمول (عمان)
 MARMOUL_LAT, MARMOUL_LON = 18.15, 55.18
 
 @st.cache_data(ttl=600)
@@ -52,16 +52,21 @@ for i in range(num_blocks):
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-# تجهيز مضلعات مستطيلة مستوية تمثل حقول الألواح على الخريطة الجغرافية
+# إحداثيات مدروسة تبعد تماماً عن الطرق الصحراوية وتوزيع دقيق للحقول
+offsets = [
+    (0.035, 0.035),   # الحقل الأول (شمال شرق بعيد عن الطريق)
+    (-0.025, 0.045),  # الحقل الثاني (شرق)
+    (-0.04, -0.035),  # الحقل الثالث (جنوب غرب)
+    (0.015, -0.04)    # الحقل الرابع (جنوب شرق)
+]
+
 polygon_data = []
-np.random.seed(42)
 for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
-    lat_offset = np.random.uniform(-0.025, 0.025)
-    lon_offset = np.random.uniform(-0.025, 0.025)
-    center_lat = MARMOUL_LAT + lat_offset
-    center_lon = MARMOUL_LON + lon_offset
+    off_lat, off_lon = offsets[i % len(offsets)]
+    center_lat = MARMOUL_LAT + off_lat
+    center_lon = MARMOUL_LON + off_lon
     
-    dx, dy = 0.008, 0.005
+    dx, dy = 0.012, 0.007
     polygon = [
         [center_lon - dx, center_lat - dy],
         [center_lon + dx, center_lat - dy],
@@ -70,7 +75,6 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     ]
     
     is_critical = cfg['soiling'] > 12.0 or dust_storm_active
-    # ألوان واضحة للحقول على الخريطة الجغرافية
     color = [239, 68, 68, 230] if is_critical else [30, 64, 175, 230] 
     
     polygon_data.append({
@@ -84,24 +88,23 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
 df_poly = pd.DataFrame(polygon_data)
 
 tab1, tab2, tab3 = st.tabs([
-    "🗺️ الخريطة الجغرافية الحية لصحراء مرمول", 
+    "🗺️ الخريطة الجغرافية وحقول الألواح التفصيلية", 
     "☀️ العرض المجسم للحقول (3D Diorama)", 
     "💰 الاقتصاديات والتقارير الذكية"
 ])
 
 with tab1:
-    st.subheader("📍 التوزيع الجغرافي لحقول الألواح في صحراء مرمول (سلطنة عمان)")
-    st.markdown("خريطة تفاعلية واضحة لمعالم الصحراء تظهر عليها حقول الألواح مستوية وأفقية؛ تتغير ألوانها تلقائياً بين الأزرق والأحمر حسب الغبار:")
+    st.subheader("📍 التوزيع الجغرافي لحقول الألواح (بعيداً عن الطرق الصحراوية)")
+    st.markdown("خريطة تفاعلية لصحراء مرمول؛ تم إبعاد المضلعات تماماً عن مسارات الطرق وتظهر بداخلها مصفوفات الألواح الشمسية:")
 
-    # طبقة مضلعات أفقية مستوية (extruded=False لضمان عدم ظهورها كأبراج)
     layer = pdk.Layer(
         "PolygonLayer",
         df_poly,
-        id="solar-fields",
+        id="solar-fields-safe",
         get_polygon="polygon",
         get_fill_color="color",
         get_line_color=[255, 255, 255],
-        line_width_min_pixels=2,
+        line_width_min_pixels=3,
         extruded=False, 
         pickable=True,
         auto_highlight=True,
@@ -111,11 +114,10 @@ with tab1:
         latitude=MARMOUL_LAT,
         longitude=MARMOUL_LON,
         zoom=10,
-        pitch=25,
+        pitch=20,
         bearing=0
     )
 
-    # استخدام خريطة CARTO Voyager المضيئة والواضحة للرؤية الجغرافية بدون مفتاح Mapbox
     r = pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
@@ -124,6 +126,63 @@ with tab1:
     )
 
     st.pydeck_chart(r)
+
+    st.markdown("---")
+    st.subheader("🔍 معاينة شبكة الألواح الداخلية لكل حقل جغرافياً")
+    
+    # عرض تفصيلي لشبكة الألواح لكل حقل تحت الخريطة لضمان الدقة البصرية المطلوبة
+    cols = st.columns(2)
+    for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
+        soiling = cfg['soiling']
+        is_critical = soiling > 12.0 or dust_storm_active
+        p_color = "#ef4444" if is_critical else "#1e40af"
+        
+        detail_card = f"""
+        <div style="
+            background: #0f172a;
+            border: 2px solid {'#ef4444' if is_critical else '#38bdf8'};
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 15px;
+            color: white;
+            font-family: sans-serif;
+            text-align: right;
+            direction: rtl;
+        ">
+            <h4 style="margin: 0 0 10px 0; color: #f8fafc; font-size: 15px;">{inv_name} - مصفوفة الألواح الداخلية</h4>
+            <div style="
+                background: linear-gradient(135deg, #b45309, #78350f);
+                border: 2px solid #451a03;
+                border-radius: 8px;
+                height: 110px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            ">
+                <div style="
+                    display: grid;
+                    grid-template-columns: repeat(5, 1fr);
+                    gap: 6px;
+                    width: 85%;
+                    transform: perspective(400px) rotateX(30deg);
+                ">
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
+                </div>
+            </div>
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #cbd5e1;">نسبة الغبار الحالية: <b>{soiling}%</b> | الحالة: <b>{'حرج' if is_critical else 'طبيعي'}</b></p>
+        </div>
+        """
+        with cols[i % 2]:
+            components.html(detail_card, height=210)
 
 with tab2:
     st.subheader("☀️ عرض الحقول المجسمة (3D Diorama View)")
