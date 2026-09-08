@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import pvlib
 import requests
+import streamlit.components.v1 as components
 from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
@@ -263,7 +264,7 @@ with tab3:
         </div>
         """
         with cols[i % 2]:
-            st.markdown(html_code, unsafe_allow_html=True)
+            components.html(html_code, height=215)
 
     st.markdown("### 📊 جدول البيانات التشغيلية لمصفوفات مرمول")
     table_view_data = []
