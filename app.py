@@ -12,7 +12,7 @@ st.set_page_config(page_title="RE-OPT: Al Wusta Complete Enterprise Solar Twin",
 st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
 
 st.title("⚡ RE-OPT: Al Wusta Enterprise Solar Twin & Autonomous Operations")
-st.markdown("التوأم الرقمي المؤسسي الشامل - يجمع بين خريطة الوسطى الجغرافية، رسومات التوأم الرقمي الحي، والتحليل المالي لـ LCOE والتوجيه الدقيق للروبوتات.")
+st.markdown("التوأم الرقمي المؤسسي الشامل - يجمع بين خريطة الوسطى الجغرافية، رسومات التوأم الحي، التوجيه الدقيق للروبوتات، ولوحة أوامر الشغل السريعة.")
 
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
@@ -74,7 +74,6 @@ for i in range(num_blocks):
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-# محاكاة الإنتاجية بالفيزياء (PVlib)
 @st.cache_data
 def run_wusta_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind):
     tz = 'Asia/Muscat'
@@ -158,13 +157,14 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     })
 df_poly = pd.DataFrame(polygon_data)
 
-# التبويبات الشاملة للمنصة المؤسسية
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🗺️ الخريطة الجغرافية للوسطى", 
-    "📈 التوأم الرقمي والرسومات الحية", 
+# تحديث التبويبات لتشمل 6 تبويبات رئيسية مع لوحة أوامر الشغل السريعة
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🗺️ الخريطة الجغرافية", 
+    "📈 التوأم الرقمي والرسومات", 
     "🎯 التوجيه الدقيق لأسراب التنظيف", 
-    "☀️ العرض المجسم للحقول (3D Diorama)", 
-    "💰 الاقتصاديات و LCOE"
+    "☀️ العرض المجسم (3D)", 
+    "💰 الاقتصاديات و LCOE",
+    "📋 أوامر الشغل السريعة"
 ])
 
 with tab1:
@@ -255,8 +255,27 @@ with tab5:
             client = genai.Client(api_key=gemini_api_key)
             response = client.interactions.create(
                 model='gemini-3.6-flash',
-                input=f"قدم تقريراً مالياً واقتصادياً متعمقاً لإدارة الأصول لمحطة مرمول بالوسطى بقدرة {total_capacity_mw} ميجاوات وتكلفة LCOE تبلغ {lcoe:.4f}."
+                input=f"قدم تقريراً مالياً واقتصادياً متعمقاً لإدارة الأصول لمحطة الوسطى بقدرة {total_capacity_mw} ميجاوات وتكلفة LCOE تبلغ {lcoe:.4f}."
             )
             st.markdown(response.output_text)
         except Exception as e:
             st.error(f"خطأ: {e}")
+
+with tab6:
+    st.subheader("📋 لوحة أوامر الشغل السريعة (Quick Work Orders)")
+    selected_block_wo = st.selectbox("اختر الحقل لإصدار أمر العمل الميداني", list(inverter_configs.keys()))
+    work_order_id = f"WO-ALWUSTA-2026-{np.random.randint(1000, 9999)}"
+    
+    wo_payload = {
+        "work_order_id": work_order_id,
+        "facility": "Al Wusta Solar Plant, Oman",
+        "target_block": selected_block_wo,
+        "soil_percentage": inverter_configs[selected_block_wo]['soiling'],
+        "tilt_angle": inverter_configs[selected_block_wo]['tilt'],
+        "priority": "HIGH" if dust_storm_active or inverter_configs[selected_block_wo]['soiling'] > 12.0 else "NORMAL",
+        "action_required": "Deploy dry-cleaning robot swarm immediately to targeted field block."
+    }
+
+    st.json(wo_payload)
+    if st.button("تصدير وإرسال أمر الشغل لفرق الصيانة الميدانية"):
+        st.success(f"✅ تم إصدار أمر الشغل رقم **{work_order_id}** بنجاح وإرساله للفرق الفنية في محافظة الوسطى!")
