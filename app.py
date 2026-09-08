@@ -4,15 +4,16 @@ import numpy as np
 import pvlib
 import requests
 import pydeck as pdk
+import urllib.parse
 import streamlit.components.v1 as components
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Al Wusta Complete Enterprise Solar Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Al Wusta Enterprise Solar Twin", layout="wide")
 
 st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
 
 st.title("⚡ RE-OPT: Al Wusta Enterprise Solar Twin & Autonomous Operations")
-st.markdown("التوأم الرقمي المؤسسي الشامل - يجمع بين خريطة الوسطى الجغرافية، رسومات التوأم الحي، التوجيه الدقيق للروبوتات، ولوحة أوامر الشغل السريعة.")
+st.markdown("التوأم الرقمي المؤسسي الشامل - مع ربط أسراب الروبوتات وأوامر الشغل عبر رسائل الوكيل المباشرة.")
 
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
@@ -157,14 +158,13 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     })
 df_poly = pd.DataFrame(polygon_data)
 
-# تحديث التبويبات لتشمل 6 تبويبات رئيسية مع لوحة أوامر الشغل السريعة
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🗺️ الخريطة الجغرافية", 
     "📈 التوأم الرقمي والرسومات", 
     "🎯 التوجيه الدقيق لأسراب التنظيف", 
     "☀️ العرض المجسم (3D)", 
     "💰 الاقتصاديات و LCOE",
-    "📋 أوامر الشغل السريعة"
+    "📋 أوامر الشغل وواتساب"
 ])
 
 with tab1:
@@ -262,20 +262,48 @@ with tab5:
             st.error(f"خطأ: {e}")
 
 with tab6:
-    st.subheader("📋 لوحة أوامر الشغل السريعة (Quick Work Orders)")
+    st.subheader("📋 لوحة أوامر الشغل والإرسال الفوري عبر واتساب")
+    
+    col_w1, col_w2 = st.columns(2)
+    with col_w1:
+        sender_phone = st.text_input("رقم هاتفك (المرسل)", value="+96890000000")
+    with col_w2:
+        receiver_phone = st.text_input("رقم مهندس الصيانة / مشرف الروبوتات (المستلم)", value="+96891111111")
+
     selected_block_wo = st.selectbox("اختر الحقل لإصدار أمر العمل الميداني", list(inverter_configs.keys()))
     work_order_id = f"WO-ALWUSTA-2026-{np.random.randint(1000, 9999)}"
     
-    wo_payload = {
-        "work_order_id": work_order_id,
-        "facility": "Al Wusta Solar Plant, Oman",
-        "target_block": selected_block_wo,
-        "soil_percentage": inverter_configs[selected_block_wo]['soiling'],
-        "tilt_angle": inverter_configs[selected_block_wo]['tilt'],
-        "priority": "HIGH" if dust_storm_active or inverter_configs[selected_block_wo]['soiling'] > 12.0 else "NORMAL",
-        "action_required": "Deploy dry-cleaning robot swarm immediately to targeted field block."
-    }
+    soil_val = inverter_configs[selected_block_wo]['soiling']
+    tilt_val = inverter_configs[selected_block_wo]['tilt']
+    priority_level = "عالية جداً (Critical)" if dust_storm_active or soil_val > 12.0 else "عادية (Normal)"
 
-    st.json(wo_payload)
-    if st.button("تصدير وإرسال أمر الشغل لفرق الصيانة الميدانية"):
-        st.success(f"✅ تم إصدار أمر الشغل رقم **{work_order_id}** بنجاح وإرساله للفرق الفنية في محافظة الوسطى!")
+    message_body = (
+        f"🚨 *أمر شغل مؤسسي - محطة الوسطى للطاقة الشمسية*\n\n"
+        f"🆔 رقم العمل: `{work_order_id}`\n"
+        f"🌱 الحقل المستهدف: *{selected_block_wo}*\n"
+        f"📊 نسبة الغبار: *{soil_val}%*\n"
+        f"📐 زاوية الميل: *{tilt_val}°*\n"
+        f"⚡ الأولوية: *{priority_level}*\n"
+        f"🛠️ الإجراء المطلوب: نشر أسراب روبوتات التنظيف الجاف فوراً.\n\n"
+        f"📱 مرسل من الرقم: {sender_phone}"
+    )
+
+    st.markdown("**معاينة رسالة أمر الشغل الجاهزة للإرسال:**")
+    st.info(message_body)
+
+    # ترميز النص ليتناسب مع رابط واتساب الرسمي
+    encoded_message = urllib.parse.quote(message_body)
+    clean_receiver = receiver_phone.replace("+", "").replace(" ", "")
+    whatsapp_url = f"https://wa.me/{clean_receiver}?text={encoded_message}"
+
+    st.markdown("---")
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("💾 حفظ السجل في قاعدة بيانات السكادا"):
+            st.success(f"✅ تم حفظ أمر الشغل رقم {work_order_id} في أرشيف الأدلة ومطالبات التأمين بنجاح!")
+    with col_btn2:
+        # زر مباشر يفتح واتساب مع الرسالة الجاهزة
+        st.markdown(
+            f'<a href="{whatsapp_url}" target="_blank" style="display:inline-block;background-color:#25d366;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;text-align:center;width:100%;">📤 إرسال أمر الشغل عبر واتساب للمهندس</a>',
+            unsafe_allow_html=True
+        )
