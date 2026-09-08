@@ -11,8 +11,8 @@ st.set_page_config(page_title="RE-OPT: Al Wusta Enterprise Solar Twin", layout="
 
 st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
 
-st.title("⚡ RE-OPT: Al Wusta Enterprise Solar Twin & Insurance Evidence Engine")
-st.markdown("التوأم الرقمي المؤسسي الشامل - مع محرك أدلة العواصف ومطالبات التأمين للممولين.")
+st.title("⚡ RE-OPT: Al Wusta Enterprise Solar Twin & What-If Scenario Simulator")
+st.markdown("التوأم الرقمي المؤسسي الشامل - مع محرك محاكاة السيناريوهات الافتراضية ومطالبات التأمين.")
 
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
@@ -157,14 +157,15 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     })
 df_poly = pd.DataFrame(polygon_data)
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "🗺️ الخريطة الجغرافية", 
-    "📈 التوأم الرقمي", 
-    "🎯 التوجيه الذقي", 
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    "🗺️ الخريطة", 
+    "📈 التوأم", 
+    "🎯 التوجيه", 
     "☀️ العرض (3D)", 
     "💰 الاقتصاديات",
     "📋 أوامر الشغل",
-    "🛡️ أدلة التأمين (Insurance Engine)"
+    "🛡️ التأمين",
+    "🔬 محاكي السيناريوهات (What-If)"
 ])
 
 with tab1:
@@ -253,13 +254,13 @@ with tab5:
     if gemini_api_key and st.button("توليد التقرير المالي والتشغيلي الشامل"):
         try:
             client = genai.Client(api_key=gemini_api_key)
-            response = client.interactions.create(
-                model='gemini-3.6-flash',
-                input=f"قدم تقريراً مالياً واقتصادياً متعمقاً لإدارة الأصول لمحطة الوسطى بقدرة {total_capacity_mw} ميجاوات وتكلفة LCOE تبلغ {lcoe:.4f}."
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=f"قدم تقريراً مالياً واقتصادياً متعمقاً لإدارة الأصول لمحطة الوسطى بقدرة {total_capacity_mw} ميجاوات وتكلفة LCOE تبلغ {lcoe:.4f}."
             )
-            st.markdown(response.output_text)
+            st.markdown(response.text)
         except Exception as e:
-            st.error(f"خطأ: {e}")
+            st.error(f"خطأ في الاتصال مع Gemini: {e}")
 
 with tab6:
     st.subheader("📋 لوحة أوامر الشغل والإشعارات الميدانية بالمنصة")
@@ -285,10 +286,8 @@ with tab6:
 
 with tab7:
     st.subheader("🛡️ حزمة أدلة العواصف ومطالبات التأمين (Loss Event Report)")
-    st.markdown("نظام معتمد لتوليد تقارير الخسائر البيئية ومطالبات التأمين للممولين بناءً على بيانات الطقس و PM10:")
-
     event_id = f"LOSS-EVT-OMAN-2026-{np.random.randint(100, 999)}"
-    total_loss_omr = daily_financial_loss * 3 # افتراض عاصفة لمدة 3 أيام
+    total_loss_omr = daily_financial_loss * 3 
     
     evidence_payload = {
         "event_reference": event_id,
@@ -303,13 +302,60 @@ with tab7:
 
     st.json(evidence_payload)
 
-    if gemini_api_key and st.button("📄 توليد تقرير مطالبة التأمين الرسمي بالذكاء الاصطناعي"):
-        try:
-            client = genai.Client(api_key=gemini_api_key)
-            response = client.interactions.create(
-                model='gemini-3.6-flash',
-                input=f"بصفتك كبير مهندسي محطة طاقة شمسية ومستشار مطالبات تأمين، قم بصياغة تقرير رسمي متكامل وموجه لشركة التأمين والممولين لحدث خسارة رقم {event_id} في صحراء الوسطى بعمان، بقيمة خسارة تبلغ {total_loss_omr:,.3f} ريال عماني بسبب عاصفة غبارية بتركيز PM10 بلغ {live_pm10:.1f}."
-            )
-            st.markdown(response.output_text)
-        except Exception as e:
-            st.error(f"خطأ في التوليد: {e}")
+    if st.button("📄 توليد تقرير مطالبة التأمين الرسمي بالذكاء الاصطناعي"):
+        if not gemini_api_key:
+            st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتوليد التقرير.")
+        else:
+            with st.spinner("جاري صياغة التقرير المعتمد..."):
+                try:
+                    client = genai.Client(api_key=gemini_api_key)
+                    prompt_text = (
+                        f"بصفتك كبير مهندسي محطة طاقة شمسية ومستشار مطالبات تأمين، قم بصياغة تقرير رسمي متكامل وموجه لشركة التأمين والممولين "
+                        f"لحدث خسارة رقم {event_id} في صحراء الوسطى بعمان، بقيمة خسارة تبلغ {total_loss_omr:,.3f} ريال عماني "
+                        f"بسبب عاصفة غبارية بتركيز PM10 بلغ {live_pm10:.1f} وسرعة رياح {live_wind} م/ث."
+                    )
+                    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt_text)
+                    st.markdown("### 📄 تقرير مطالبة التأمين الرسمي:")
+                    st.markdown(response.text)
+                except Exception as e:
+                    st.error(f"⚠️ حدث خطأ أثناء توليد التقرير: {e}")
+
+with tab8:
+    st.subheader("🔬 محاكي السيناريوهات الافتراضية وتحليل (What-If Analysis)")
+    st.markdown("دراسة تأثير الفرضيات المستقبلية على أداء المحطة والاقتصاديات في صحراء الوسطى:")
+
+    sim_col1, sim_col2 = st.columns(2)
+    with sim_col1:
+        sim_storm_increase = st.slider("معدل زيادة العواصف الرملية السنوية (%)", 0, 100, 25)
+        sim_extra_robots = st.slider("إضافة روبوتات تنظيف جديدة", 0, 2000, 500)
+    with sim_col2:
+        sim_tariff_shift = st.slider("تغير تعرفة البيع (%)", -20, 30, 0)
+
+    # حساب النتائج الافتراضية بناءً على المحاكاة
+    simulated_loss_increase = total_financial_loss * (1 + sim_storm_increase / 100.0) * 365
+    simulated_new_lcoe = lcoe * (1 - (sim_extra_robots * 0.00005) + (sim_storm_increase * 0.0002))
+    simulated_roi_boost = net_robotic_roi + (sim_extra_robots * 0.02)
+
+    st.markdown("---")
+    r_col1, r_col2, r_col3 = st.columns(3)
+    r_col1.metric("إجمالي الفقد السنوي المتوقع", f"{simulated_loss_increase:,.0f} ر.ع", delta=f"+{sim_storm_increase}% عواصف")
+    r_col2.metric("تكلفة LCOE الافتراضية", f"{simulated_new_lcoe:.4f} ر.ع", delta=f"{((simulated_new_lcoe - lcoe)/lcoe)*100:.2f}%")
+    r_col3.metric("صافي العائد بعد التوسع", f"{simulated_roi_boost:,.2f} ر.ع/يوم", delta=f"+{sim_extra_robots} روبوت")
+
+    if st.button("📊 توليد تحليل سيناريو استراتيجي عبر الذكاء الاصطناعي"):
+        if not gemini_api_key:
+            st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي.")
+        else:
+            with st.spinner("جاري تحليل السيناريو بواسطة الذكاء الاصطناعي..."):
+                try:
+                    client = genai.Client(api_key=gemini_api_key)
+                    scenario_prompt = (
+                        f"قم بتحليل سيناريو استراتيجي لمحطة طاقة شمسية في صحراء الوسطى بسلطنة عمان بقدرة {total_capacity_mw} ميجاوات. "
+                        f"الفرضيات: زيادة العواصف بنسبة {sim_storm_increase}%, إضافة {sim_extra_robots} روبوت تنظيف، "
+                        f"لتصبح تكلفة LCOE الافتراضية {simulated_new_lcoe:.4f} ر.ع. قدم توصيات تنفيذية للإدارة العليا."
+                    )
+                    response = client.models.generate_content(model='gemini-2.5-flash', contents=scenario_prompt)
+                    st.markdown("### 📈 نتيجة التحليل الاستراتيجي:")
+                    st.markdown(response.text)
+                except Exception as e:
+                    st.error(f"خطأ: {e}")
