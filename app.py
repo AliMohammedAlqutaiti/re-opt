@@ -7,12 +7,12 @@ import pydeck as pdk
 import streamlit.components.v1 as components
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Al Wusta Autonomous Solar Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Al Wusta Complete Enterprise Solar Twin", layout="wide")
 
 st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
 
-st.title("⚡ RE-OPT: Al Wusta Autonomous & Precise Cleaning Dispatcher")
-st.markdown("التوأم الرقمي المؤسسي - نظام التوجيه الذكي الذي يحدد بدقة الحقول والمصفوفات المستهدفة للتنظيف الجاف.")
+st.title("⚡ RE-OPT: Al Wusta Enterprise Solar Twin & Autonomous Operations")
+st.markdown("التوأم الرقمي المؤسسي الشامل - يجمع بين خريطة الوسطى الجغرافية، رسومات التوأم الرقمي الحي، والتحليل المالي لـ LCOE والتوجيه الدقيق للروبوتات.")
 
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
@@ -54,6 +54,17 @@ if dust_storm_active:
 
 storm_soiling_penalty = st.sidebar.slider("معامل الغبار الإضافي (%)", min_value=5.0, max_value=50.0, value=18.0) if dust_storm_active else 0.0
 
+st.sidebar.subheader("تخصيص الألواح وزوايا الميل")
+technology_type = st.sidebar.selectbox("نوع تكنولوجيا الألواح", ["ثنائية الوجه (Bifacial Glass-Glass)", "أحادية الوجه (Mono-facial PERC)"])
+albedo = st.sidebar.slider("معامل انعكاس رمال الوسطى (Albedo)", min_value=0.2, max_value=0.7, value=0.45, step=0.05)
+bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه (%)", min_value=65.0, max_value=85.0, value=75.0, step=5.0) / 100.0
+tariff = st.sidebar.number_input("تعرفة الطاقة (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.025, step=0.001, format="%.3f")
+
+st.sidebar.subheader("اقتصاديات أسطول الروبوتات الجافة")
+total_robots = st.sidebar.number_input("عدد روبوتات التنظيف الجاف", min_value=500, max_value=6000, value=2200, step=100)
+initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي للروبوتات (ر.ع)", min_value=500000.0, max_value=6000000.0, value=1500000.0, step=50000.0)
+daily_robot_depreciation = st.sidebar.number_input("إهلاك الصيانة اليومي", min_value=10.0, max_value=600.0, value=55.0, step=5.0)
+
 st.sidebar.subheader("التحكم المستقل بحقول الألواح")
 inverter_configs = {}
 for i in range(num_blocks):
@@ -63,21 +74,75 @@ for i in range(num_blocks):
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-tariff = 0.025 
+# محاكاة الإنتاجية بالفيزياء (PVlib)
+@st.cache_data
+def run_wusta_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind):
+    tz = 'Asia/Muscat'
+    times = pd.date_range('2026-06-01 06:00:00', '2026-06-01 18:00:00', freq='h', tz=tz)
+    location = pvlib.location.Location(latitude, longitude, tz=tz)
+    clearsky = location.get_clearsky(times)
+    
+    peak_ghi = 1000.0
+    ghi = clearsky['ghi']
+    
+    noct = 47.0
+    cell_temp = t_amb + (ghi / 800.0) * (noct - 20.0) * (9.5 / (5.7 + 3.8 * wind))
+    temp_coeff = -0.0034
+    temp_factor = 1.0 + temp_coeff * (cell_temp - 25.0)
+    temp_factor = temp_factor.clip(lower=0.5)
+    
+    block_capacity = total_cap / n_inv
+    simulation_results = {}
+    total_actual = np.zeros(len(times))
+    total_ideal = np.zeros(len(times))
+    
+    for i, (inv_name, cfg) in enumerate(configs.items()):
+        base_power = (ghi / peak_ghi) * block_capacity
+        base_power = base_power.clip(lower=0)
+        
+        ideal_power = base_power * temp_factor
+        if "ثنائية الوجه" in tech_mode:
+            bif_gain = 1.0 + (alb * bif_factor * 0.20)
+            ideal_power *= bif_gain
+            
+        total_degradation = cfg['soiling'] + (abs(cfg['tilt'] - 22.0) * 0.2)
+        actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
+        actual_power = ideal_power * actual_factor
+            
+        simulation_results[inv_name] = pd.DataFrame({
+            'النموذج المثالي': ideal_power,
+            'قراءات السكادا الفعلية': actual_power
+        }, index=times)
+        
+        total_ideal += ideal_power
+        total_actual += actual_power
 
-offsets = [
-    (0.04, 0.04),
-    (-0.03, 0.05),
-    (-0.04, -0.04),
-    (0.02, -0.05)
-]
+    simulation_results['Plant_Total'] = pd.DataFrame({
+        'إجمالي المثالي للمحطة': total_ideal,
+        'إجمالي قراءات السكادا الفعلية': total_actual
+    }, index=times)
+    
+    return simulation_results
 
+sim_data = run_wusta_simulation(AL_WUSTA_LAT, AL_WUSTA_LON, total_capacity, num_blocks, inverter_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind)
+
+df_total = sim_data['Plant_Total']
+total_plant_loss_kwh = (df_total['إجمالي المثالي للمحطة'] - df_total['إجمالي قراءات السكادا الفعلية']).sum()
+daily_financial_loss = max(0.0, abs(total_plant_loss_kwh) * tariff)
+net_robotic_roi = daily_financial_loss - daily_robot_depreciation
+
+annual_generation_mwh = (df_total['إجمالي قراءات السكادا الفعلية'].sum() * 365) / 1000.0
+plant_capex = total_capacity_mw * 330000.0 
+total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciation * 365 * 25)
+total_lifetime_generation_mwh = annual_generation_mwh * 25
+lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
+
+offsets = [(0.04, 0.04), (-0.03, 0.05), (-0.04, -0.04), (0.02, -0.05)]
 polygon_data = []
 for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     off_lat, off_lon = offsets[i % len(offsets)]
     center_lat = AL_WUSTA_LAT + off_lat
     center_lon = AL_WUSTA_LON + off_lon
-    
     dx, dy = 0.012, 0.007
     polygon = [
         [center_lon - dx, center_lat - dy],
@@ -85,94 +150,66 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
         [center_lon + dx, center_lat + dy],
         [center_lon - dx, center_lat + dy]
     ]
-    
     is_critical = cfg['soiling'] > 12.0 or dust_storm_active
     color = [239, 68, 68, 230] if is_critical else [30, 64, 175, 230] 
-    
     polygon_data.append({
-        "name": inv_name,
-        "polygon": polygon,
-        "soiling": cfg['soiling'],
-        "status": "🚨 خطر تلوث رملي حرج" if is_critical else "✅ أداء طبيعي وسليم",
-        "color": color
+        "name": inv_name, "polygon": polygon, "soiling": cfg['soiling'],
+        "status": "🚨 خطر تلوث رملي حرج" if is_critical else "✅ أداء طبيعي وسليم", "color": color
     })
-
 df_poly = pd.DataFrame(polygon_data)
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🗺️ الخريطة الجغرافية وحقول الألواح", 
-    "🎯 التوجيه الدقيق لأسراب التنظيف (Smart Cleaning)", 
+# التبويبات الشاملة للمنصة المؤسسية
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🗺️ الخريطة الجغرافية للوسطى", 
+    "📈 التوأم الرقمي والرسومات الحية", 
+    "🎯 التوجيه الدقيق لأسراب التنظيف", 
     "☀️ العرض المجسم للحقول (3D Diorama)", 
-    "💰 الاقتصاديات والتقارير الذكية"
+    "💰 الاقتصاديات و LCOE"
 ])
 
 with tab1:
     st.subheader("📍 التوزيع الجغرافي لحقول الألواح في صحراء محافظة الوسطى")
     layer = pdk.Layer(
-        "PolygonLayer",
-        df_poly,
-        id="al-wusta-fields",
-        get_polygon="polygon",
-        get_fill_color="color",
-        get_line_color=[255, 255, 255],
-        line_width_min_pixels=3,
-        extruded=False, 
-        pickable=True,
-        auto_highlight=True,
+        "PolygonLayer", df_poly, id="wusta-map",
+        get_polygon="polygon", get_fill_color="color", get_line_color=[255, 255, 255],
+        line_width_min_pixels=3, extruded=False, pickable=True, auto_highlight=True,
     )
-
-    view_state = pdk.ViewState(
-        latitude=AL_WUSTA_LAT,
-        longitude=AL_WUSTA_LON,
-        zoom=9,
-        pitch=20,
-        bearing=0
-    )
-
-    r = pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
-        tooltip={"text": "الحقل: {name}\nالحالة: {status}\nنسبة الغبار: {soiling}%"}
-    )
-
+    view_state = pdk.ViewState(latitude=AL_WUSTA_LAT, longitude=AL_WUSTA_LON, zoom=9, pitch=20, bearing=0)
+    r = pdk.Deck(layers=[layer], initial_view_state=view_state, map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json", tooltip={"text": "الحقل: {name}\nالحالة: {status}\nنسبة الغبار: {soiling}%"})
     st.pydeck_chart(r)
 
 with tab2:
-    st.subheader("🎯 نظام التوجيه الدقيق لأسراب الروبوتات (حقل بحقل)")
-    st.markdown("يحلل هذا المحرك نسبة الغبار في كل حقل على حدة، ويحدد لك بوضوح **ما الذي يجب تنظيفه فوراً** و**ما الذي يجب استبعاده** لتوفير التكاليف:")
+    st.subheader("📈 التوأم الرقمي - مقارنة الإنتاجية المثالية مقابل السكادا الفعلية")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
+    c2.metric("الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
+    c3.metric("تعرفة الكهرباء", f"{tariff:.3f} / kWh")
+    c4.metric("مؤشر الغبار PM10", f"{live_pm10:.1f} µg/m³")
+    st.markdown("---")
+    st.line_chart(df_total)
 
+with tab3:
+    st.subheader("🎯 نظام التوجيه الدقيق لأسراب الروبوتات (حقل بحقل)")
     cleaning_report = []
     block_capacity_mw = (total_capacity_mw / num_blocks)
-
     for inv_name, cfg in inverter_configs.items():
         soiling = cfg['soiling']
-        # حساب الفقد المالي اليومي لهذا الحقل بناءً على نسبة الغبار
-        daily_loss_kwh = (block_capacity_mw * 1000) * (soiling / 100.0) * 5.5 # 5.5 ساعات ذروة افتراضية
+        daily_loss_kwh = (block_capacity_mw * 1000) * (soiling / 100.0) * 5.5
         daily_loss_omr = daily_loss_kwh * tariff
-        cleaning_cost_block = 35.0 # تكلفة تشغيل الروبوتات لهذا الحقل
+        cleaning_cost_block = 35.0
         net_benefit = daily_loss_omr - cleaning_cost_block
 
         if dust_storm_active:
             action = "⏸️ تأجيل مؤقت (عاصفة نشطة مستمرة)"
-            status_cls = "⚠️ تأجيل الحماية"
         elif soiling > 12.0:
             action = f"🚀 **إرسال أسراب التنظيف فوراً** (صافي العائد: +{net_benefit:,.1f} ر.ع/يوم)"
-            status_cls = "🚨 حقل حرج مستهدف"
         else:
-            action = "✅ استبعاد من جدول اليوم (الحقل نظيف كفاية)"
-            status_cls = "🟢 سليم (لا يتطلب تدخل)"
+            action = "✅ استبعاد من جدول اليوم (نظيف)"
 
-        cleaning_report.append({
-            "الحقل": inv_name,
-            "نسبة الغبار": f"{soiling}%",
-            "الفقد المالي اليومي": f"{daily_loss_omr:,.1f} ر.ع",
-            "قرار الوكيل الآلي": action
-        })
-
+        cleaning_report.append({"الحقل": inv_name, "نسبة الغبار": f"{soiling}%", "الفقد المالي اليومي": f"{daily_loss_omr:,.1f} ر.ع", "قرار الوكيل الآلي": action})
     st.table(pd.DataFrame(cleaning_report))
 
-with tab3:
+with tab4:
     st.subheader("☀️ عرض الحقول المجسمة (3D Diorama View)")
     cols = st.columns(2)
     for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
@@ -183,46 +220,19 @@ with tab3:
         status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ حقل نظيف ومنتج"
 
         diorama_html = f"""
-        <div style="
-            background: #1e293b;
-            border: 2px solid {'#ef4444' if is_critical else '#0ea5e9'};
-            border-radius: 16px;
-            padding: 16px;
-            margin-bottom: 20px;
-            color: white;
-            font-family: sans-serif;
-            text-align: right;
-            direction: rtl;
-            box-shadow: 0 12px 25px rgba(0,0,0,0.6);
-        ">
+        <div style="background: #1e293b; border: 2px solid {'#ef4444' if is_critical else '#0ea5e9'}; border-radius: 16px; padding: 16px; margin-bottom: 20px; color: white; font-family: sans-serif; text-align: right; direction: rtl; box-shadow: 0 12px 25px rgba(0,0,0,0.6);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">🌱 {inv_name} (محافظة الوسطى)</h4>
                 <span style="background: {'#ef4444' if is_critical else '#0284c7'}; color: white; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">{status_text}</span>
             </div>
-            
-            <div style="
-                background: linear-gradient(135deg, #d97706, #92400e);
-                border: 3px solid #78350f;
-                border-radius: 12px;
-                height: 150px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            ">
-                <div style="
-                    display: grid;
-                    grid-template-columns: repeat(4, 1fr);
-                    gap: 8px;
-                    width: 80%;
-                    transform: perspective(600px) rotateX(40deg);
-                ">
+            <div style="background: linear-gradient(135deg, #d97706, #92400e); border: 3px solid #78350f; border-radius: 12px; height: 150px; display: flex; align-items: center; justify-content: center;">
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 80%; transform: perspective(600px) rotateX(40deg);">
                     <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
                     <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
                     <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
                     <div style="background: {panel_color}; height: 35px; border-radius: 4px; border: 2px solid #93c5fd;"></div>
                 </div>
             </div>
-
             <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 6px; margin-top: 10px;">
                 <span>نسبة الغبار: <b>{soiling}%</b></span>
                 <span>زاوية الميل: <b>{tilt}°</b></span>
@@ -232,19 +242,20 @@ with tab3:
         with cols[i % 2]:
             components.html(diorama_html, height=260)
 
-with tab4:
-    st.subheader("💰 التحليل المالي والتقارير الذكية")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("قدرة المحطة", f"{total_capacity_mw} MW")
-    c2.metric("درجة الحرارة", f"{live_temp}°C")
-    c3.metric("سرعة الرياح", f"{live_wind} m/s")
-    
-    if gemini_api_key and st.button("توليد تقرير الذكاء الاصطناعي التشغيلي"):
+with tab5:
+    st.subheader("💰 التحليل المالي بعيد المدى واقتصاديات الروبوتات (LCOE & CAPEX)")
+    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+    f_col1.metric("استثمار الروبوتات", f"{initial_robot_capex:,.0f} ر.ع")
+    f_col2.metric("إهلاك الصيانة اليومي", f"{daily_robot_depreciation:.2f} ر.ع")
+    f_col3.metric("صافي العائد اليومي", f"{net_robotic_roi:,.2f} ر.ع")
+    f_col4.metric("تكلفة LCOE", f"{lcoe:.4f} ر.ع")
+    st.markdown("---")
+    if gemini_api_key and st.button("توليد التقرير المالي والتشغيلي الشامل"):
         try:
             client = genai.Client(api_key=gemini_api_key)
             response = client.interactions.create(
                 model='gemini-3.6-flash',
-                input=f"قدم تقريراً استراتيجياً لجدولة روبوتات التنظيف الحقلية في محطة الطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في محافظة الوسطى بسلطنة عمان."
+                input=f"قدم تقريراً مالياً واقتصادياً متعمقاً لإدارة الأصول لمحطة مرمول بالوسطى بقدرة {total_capacity_mw} ميجاوات وتكلفة LCOE تبلغ {lcoe:.4f}."
             )
             st.markdown(response.output_text)
         except Exception as e:
