@@ -11,16 +11,14 @@ st.set_page_config(page_title="RE-OPT: Al Wusta Autonomous Solar Twin", layout="
 
 st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
 
-st.title("⚡ RE-OPT: Al Wusta Autonomous & Predictive Solar Twin")
-st.markdown("التوأم الرقمي المؤسسي - مدعوم بنظام ذكاء البيئة، التنبؤ بالترسبات، التحسين الذكي للتنظيف، والتحكم الجغرافي بالوسطى.")
+st.title("⚡ RE-OPT: Al Wusta Autonomous & Precise Cleaning Dispatcher")
+st.markdown("التوأم الرقمي المؤسسي - نظام التوجيه الذكي الذي يحدد بدقة الحقول والمصفوفات المستهدفة للتنظيف الجاف.")
 
-# إحداثيات دقيقة داخل محافظة الوسطى (Al Wusta Governorate, Oman)
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
 @st.cache_data(ttl=600)
 def fetch_live_weather_and_pm10(lat, lon):
     try:
-        # جلب بيانات الطقس الحية مع تقدير محاكي للـ PM10 والرياح في صحراء الوسطى
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,wind_speed_10m,wind_direction_10m"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
@@ -29,7 +27,6 @@ def fetch_live_weather_and_pm10(lat, lon):
             temp = current.get("temperature_2m", 39.0)
             wind = current.get("wind_speed_10m", 10.0)
             wind_dir = current.get("wind_direction_10m", 140.0)
-            # محاكاة مؤشر جودة الهواء وتركيز الغبار PM10 بناءً على سرعة الرياح
             pm10 = min(350.0, max(45.0, wind * 12.5 + np.random.uniform(10, 40)))
             return temp, wind, wind_dir, pm10
     except Exception:
@@ -66,27 +63,7 @@ for i in range(num_blocks):
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-tariff = 0.025 # ر.ع لكل kWh
-
-# --- 1. Predictive Soiling & Environmental Intelligence Engine ---
-# محاكاة التنبؤ للـ 48 ساعة القادمة بناءً على مستويات PM10 وسرعة الرياح
-predicted_48h_soiling_loss_mwh = (live_pm10 / 50.0) * (num_blocks * 3.5) + (15.0 if dust_storm_active else 2.1)
-predicted_financial_risk_omr = predicted_48h_soiling_loss_mwh * 1000 * tariff
-
-# --- 3. Smart Cleaning Optimisation Engine ---
-cleaning_cost_per_session = 140.0 # تكلفة تشغيل روبوتات التنظيف الجاف للحقل
-potential_revenue_recovery = predicted_financial_risk_omr * 0.85
-net_cleaning_benefit = potential_revenue_recovery - cleaning_cost_per_session
-
-if dust_storm_active or live_pm10 > 250.0:
-    cleaning_decision = "⏳ انتظر — عاصفة نشطة متوقعة (تأجيل التنظيف 36 ساعة لتفادي هدر الموارد)"
-    decision_color = "orange"
-elif net_cleaning_benefit > 0:
-    cleaning_decision = f"🚀 ابدأ التنظيف الآن — صافي العائد المتوقع: +{net_cleaning_benefit:,.1f} ر.ع"
-    decision_color = "green"
-else:
-    cleaning_decision = "⏸️ حالة مستقرّة — لا داعي لتشغيل أسراب التنظيف حالياً"
-    decision_color = "blue"
+tariff = 0.025 
 
 offsets = [
     (0.04, 0.04),
@@ -124,15 +101,13 @@ df_poly = pd.DataFrame(polygon_data)
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "🗺️ الخريطة الجغرافية وحقول الألواح", 
-    "🔮 التنبؤ الذكي والتحسين (Predictive & Smart Cleaning)", 
+    "🎯 التوجيه الدقيق لأسراب التنظيف (Smart Cleaning)", 
     "☀️ العرض المجسم للحقول (3D Diorama)", 
     "💰 الاقتصاديات والتقارير الذكية"
 ])
 
 with tab1:
     st.subheader("📍 التوزيع الجغرافي لحقول الألواح في صحراء محافظة الوسطى")
-    st.markdown("خريطة تفاعلية مركزة في عمق صحراء الوسطى؛ بعيدة عن الطرق الرئيسية وتوضح مصفوفات الألواح الداخلية:")
-
     layer = pdk.Layer(
         "PolygonLayer",
         df_poly,
@@ -163,80 +138,39 @@ with tab1:
 
     st.pydeck_chart(r)
 
-    st.markdown("---")
-    st.subheader("🔍 شبكة الألواح الداخلية لكل حقل في الوسطى")
-    
-    cols = st.columns(2)
-    for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
-        soiling = cfg['soiling']
-        is_critical = soiling > 12.0 or dust_storm_active
-        p_color = "#ef4444" if is_critical else "#1e40af"
-        
-        detail_card = f"""
-        <div style="
-            background: #0f172a;
-            border: 2px solid {'#ef4444' if is_critical else '#38bdf8'};
-            border-radius: 12px;
-            padding: 14px;
-            margin-bottom: 15px;
-            color: white;
-            font-family: sans-serif;
-            text-align: right;
-            direction: rtl;
-        ">
-            <h4 style="margin: 0 0 10px 0; color: #f8fafc; font-size: 15px;">{inv_name} - مصفوفة الألواح الداخلية</h4>
-            <div style="
-                background: linear-gradient(135deg, #b45309, #78350f);
-                border: 2px solid #451a03;
-                border-radius: 8px;
-                height: 110px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            ">
-                <div style="
-                    display: grid;
-                    grid-template-columns: repeat(5, 1fr);
-                    gap: 6px;
-                    width: 85%;
-                    transform: perspective(400px) rotateX(30deg);
-                ">
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                    <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
-                </div>
-            </div>
-            <p style="margin: 8px 0 0 0; font-size: 12px; color: #cbd5e1;">نسبة الغبار: <b>{soiling}%</b> | الحالة: <b>{'حرج' if is_critical else 'طبيعي'}</b></p>
-        </div>
-        """
-        with cols[i % 2]:
-            components.html(detail_card, height=210)
-
 with tab2:
-    st.subheader("🔮 1. ذكاء البيئة والتنبؤ بالترسبات (Predictive Soiling Model)")
-    st.markdown("نظام يتنبأ بالخسائر المستقبلية للـ 48 ساعة القادمة استناداً إلى تركيز جزيئات الغبار (PM10) وسرعة واتجاه الرياح في صحراء الوسطى:")
-    
-    col_p1, col_p2, col_p3 = st.columns(3)
-    col_p1.metric("تركيز الغبار الحالي (PM10)", f"{live_pm10:.1f} µg/m³")
-    col_p2.metric("فقد الطاقة المتوقع (48 ساعة)", f"{predicted_48h_soiling_loss_mwh:,.1f} MWh")
-    col_p3.metric("الخطر المالي المعرّض للهدر", f"{predicted_financial_risk_omr:,.2f} ر.ع")
+    st.subheader("🎯 نظام التوجيه الدقيق لأسراب الروبوتات (حقل بحقل)")
+    st.markdown("يحلل هذا المحرك نسبة الغبار في كل حقل على حدة، ويحدد لك بوضوح **ما الذي يجب تنظيفه فوراً** و**ما الذي يجب استبعاده** لتوفير التكاليف:")
 
-    st.markdown("---")
-    st.subheader("🧹 2. محرك التحسين الذكي للتنظيف (Smart Cleaning Optimisation)")
-    st.markdown("يقارن المحرك تلقائياً بين **العائد المستعاد** من التنظيف و**تكلفة تشغيل الأسراب الروبوتية** ليتخذ القرار الأمثل:")
-    
-    st.info(f"**قرار الوكيل الذكي:** {cleaning_decision}")
-    
-    sc_col1, sc_col2 = st.columns(2)
-    sc_col1.metric("العائد المتوقع من التنظيف", f"{potential_revenue_recovery:,.2f} ر.ع")
-    sc_col2.metric("تكلفة تشغيل أسراب الروبوتات", f"{cleaning_cost_per_session:,.2f} ر.ع")
+    cleaning_report = []
+    block_capacity_mw = (total_capacity_mw / num_blocks)
+
+    for inv_name, cfg in inverter_configs.items():
+        soiling = cfg['soiling']
+        # حساب الفقد المالي اليومي لهذا الحقل بناءً على نسبة الغبار
+        daily_loss_kwh = (block_capacity_mw * 1000) * (soiling / 100.0) * 5.5 # 5.5 ساعات ذروة افتراضية
+        daily_loss_omr = daily_loss_kwh * tariff
+        cleaning_cost_block = 35.0 # تكلفة تشغيل الروبوتات لهذا الحقل
+        net_benefit = daily_loss_omr - cleaning_cost_block
+
+        if dust_storm_active:
+            action = "⏸️ تأجيل مؤقت (عاصفة نشطة مستمرة)"
+            status_cls = "⚠️ تأجيل الحماية"
+        elif soiling > 12.0:
+            action = f"🚀 **إرسال أسراب التنظيف فوراً** (صافي العائد: +{net_benefit:,.1f} ر.ع/يوم)"
+            status_cls = "🚨 حقل حرج مستهدف"
+        else:
+            action = "✅ استبعاد من جدول اليوم (الحقل نظيف كفاية)"
+            status_cls = "🟢 سليم (لا يتطلب تدخل)"
+
+        cleaning_report.append({
+            "الحقل": inv_name,
+            "نسبة الغبار": f"{soiling}%",
+            "الفقد المالي اليومي": f"{daily_loss_omr:,.1f} ر.ع",
+            "قرار الوكيل الآلي": action
+        })
+
+    st.table(pd.DataFrame(cleaning_report))
 
 with tab3:
     st.subheader("☀️ عرض الحقول المجسمة (3D Diorama View)")
@@ -310,7 +244,7 @@ with tab4:
             client = genai.Client(api_key=gemini_api_key)
             response = client.interactions.create(
                 model='gemini-3.6-flash',
-                input=f"قدم تقريراً استراتيجياً لموقع محطة الطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في صحراء محافظة الوسطى بسلطنة عمان، مع تحليل مؤشرات PM10 وتوقعات الـ 48 ساعة."
+                input=f"قدم تقريراً استراتيجياً لجدولة روبوتات التنظيف الحقلية في محطة الطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في محافظة الوسطى بسلطنة عمان."
             )
             st.markdown(response.output_text)
         except Exception as e:
