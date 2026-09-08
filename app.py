@@ -8,8 +8,8 @@ from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Visual Panel Matrix")
-st.markdown("التوأم الرقمي المؤسسي - العرض البصري الاحترافي لألواح مرمول (الوسطى) مع التلوين الديناميكي للحالة التشغيلية.")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Field Matrix")
+st.markdown("التوأم الرقمي المؤسسي - العرض البصري لحقول الألواح الشمسية المتكاملة في صحراء مرمول.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -144,11 +144,10 @@ total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciat
 total_lifetime_generation_mwh = annual_generation_mwh * 25
 lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 
-# تعريف التبويبات أولاً وقبل أي استخدام
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي لمحطة مرمول", 
     "🔍 التشخيص الذكي (FDD)", 
-    "☀️ العرض المرئي ثلاثي الأبعاد للألواح", 
+    "☀️ حقل الألواح ثلاثي الأبعاد (Solar Field)", 
     "💰 الاقتصاديات و LCOE", 
     "📋 أوامر الشغل الآلية"
 ])
@@ -198,8 +197,8 @@ with tab2:
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("☀️ العرض البصري ثلاثي الأبعاد لألواح مرمول")
-    st.markdown("تصميم بصري احترافي يحاكي شكل اللوحة الشمسية الإطارية ذات التقسيمات الشبكية (Grid)، مع التلوين التلقائي بالأزرق للأداء السليم أو الأحمر عند ترسب الرمال:")
+    st.subheader("☀️ عرض حقل الألواح ثلاثي الأبعاد (Marmoul 3D Solar Field)")
+    st.markdown("محاكاة بصرية لحقل شمسي متكامل (Low-Poly Diorama) يوضح صفوف الألواح فوق التربة الصحراوية مع مؤشرات الغبار:")
 
     cols = st.columns(2)
     
@@ -208,77 +207,83 @@ with tab3:
         tilt = cfg['tilt']
         is_critical = soiling > 12.0 or dust_storm_active
         
-        border_color = "#ef4444" if is_critical else "#3b82f6"
-        bg_cells = "#fee2e2" if is_critical else "#eff6ff"
-        cell_grid_border = "#fca5a5" if is_critical else "#93c5fd"
-        cell_bg = "#fef2f2" if is_critical else "#dbeafe"
-        status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ أداء طبيعي نظيف"
+        panel_color = "#ef4444" if is_critical else "#1e3a8a"
+        status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ حقل نظيف"
 
-        html_code = f"""
+        # تصميم يحاكي حقل الألواح فوق منصة أرضية صحراوية ثلاثية الأبعاد
+        field_html = f"""
         <div style="
-            background: #0f172a;
-            border: 2px solid {border_color};
-            border-radius: 12px;
+            background: linear-gradient(135deg, #292524, #1c1917);
+            border: 2px solid {'#ef4444' if is_critical else '#38bdf8'};
+            border-radius: 16px;
             padding: 16px;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             color: white;
             font-family: sans-serif;
             text-align: right;
             direction: rtl;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
         ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">{inv_name}</h4>
-                <span style="background: {border_color}; color: white; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">{status_text}</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin: 0; color: #f5f5f4; font-size: 16px;">🌱 {inv_name} (حقل مرمول)</h4>
+                <span style="background: {'#ef4444' if is_critical else '#0284c7'}; color: white; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">{status_text}</span>
             </div>
             
+            <!-- محاكاة حقل الأرضية الصحراوية (Low-Poly Field Diorama) -->
             <div style="
-                background: {bg_cells};
-                border: 1px solid {border_color};
-                border-radius: 6px;
-                padding: 8px;
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                grid-template-rows: repeat(3, 1fr);
-                gap: 4px;
-                height: 90px;
-                margin-bottom: 10px;
+                background: linear-gradient(to bottom, #d97706, #b45309);
+                border: 2px solid #78350f;
+                border-radius: 10px;
+                height: 130px;
+                position: relative;
+                overflow: hidden;
+                box-shadow: inset 0 5px 15px rgba(0,0,0,0.4);
+                display: flex;
+                align-items: center;
+                justify-content: center;
             ">
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 3px;"></div>
+                <!-- صفوف الألواح الشمسية المائلة متعدّدة الصفوف -->
+                <div style="
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 6px;
+                    width: 85%;
+                    transform: perspective(400px) rotateX(25deg);
+                ">
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                </div>
             </div>
 
-            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px; margin-top: 10px;">
                 <span>نسبة الغبار: <b>{soiling}%</b></span>
                 <span>زاوية الميل: <b>{tilt}°</b></span>
             </div>
         </div>
         """
         with cols[i % 2]:
-            components.html(html_code, height=215)
+            components.html(field_html, height=240)
 
-    st.markdown("### 📊 جدول البيانات التشغيلية لمصفوفات مرمول")
+    st.markdown("### 📊 جدول البيانات التشغيلية لحقول مرمول")
     table_view_data = []
     for i in range(num_blocks):
         inv_name = f"Inverter Block {i+1}"
         cfg = inverter_configs[inv_name]
         soiling = cfg['soiling']
-        status_text = "🚨 تلوث رملي عالي (مظلل أحمر)" if soiling > 12.0 else "✅ سليم ونظيف (أزرق)"
+        status_text = "🚨 تلوث رملي عالي (مظلل أحمر)" if soiling > 12.0 else "✅ سليم ونظيف"
         
         table_view_data.append({
-            'محول الطاقة': inv_name,
+            'الحقل / المحول': inv_name,
             'نسبة الغبار (Soil)': f"{soiling}%",
             'زاوية الميل (Tilt)': f"{cfg['tilt']}°",
-            'الحالة البصرية': status_text,
+            'الحالة الحقلية': status_text,
             'الروبوتات المخصصة': int(total_robots / num_blocks)
         })
     st.table(pd.DataFrame(table_view_data))
