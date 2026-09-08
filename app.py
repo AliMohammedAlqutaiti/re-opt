@@ -7,13 +7,13 @@ import pydeck as pdk
 import streamlit.components.v1 as components
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Marmoul Geo-Spatial Solar Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Al Wusta Geo-Spatial Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Desert Geo-Spatial & Detailed Solar Array Twin")
-st.markdown("التوأم الرقمي المؤسسي - خريطة حية لصحراء مرمول مع مصفوفات الألواح التفصيلية داخل الحقول بعيداً عن الطرق.")
+st.title("⚡ RE-OPT: Al Wusta Desert (Marmoul) Geo-Spatial & Detailed Solar Array Twin")
+st.markdown("التوأم الرقمي المؤسسي - خريطة حية لصحراء محافظة الوسطى مع مصفوفات الألواح التفصيلية داخل الحقول بعيداً عن الطرق.")
 
-# إحداثيات صحراء مرمول (عمان)
-MARMOUL_LAT, MARMOUL_LON = 18.15, 55.18
+# إحداثيات دقيقة داخل محافظة الوسطى (Al Wusta Governorate, Oman)
+AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -23,12 +23,12 @@ def fetch_live_weather(lat, lon):
         if response.status_code == 200:
             data = response.json()
             current = data.get("current", {})
-            return current.get("temperature_2m", 38.0), current.get("wind_speed_10m", 9.0)
+            return current.get("temperature_2m", 39.0), current.get("wind_speed_10m", 10.0)
     except Exception:
         pass
-    return 38.0, 9.0
+    return 39.0, 10.0
 
-api_temp, api_wind = fetch_live_weather(MARMOUL_LAT, MARMOUL_LON)
+api_temp, api_wind = fetch_live_weather(AL_WUSTA_LAT, AL_WUSTA_LON)
 
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
 total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
@@ -36,35 +36,35 @@ total_capacity = total_capacity_mw * 1000
 num_blocks = st.sidebar.selectbox("عدد حقول محولات الطاقة (Inverter Blocks)", [2, 4, 6, 8], index=1)
 
 scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA", value=True)
-live_temp = api_temp if scada_mode else st.sidebar.number_input("درجة الحرارة المحيطة (°C)", value=38.0)
-live_wind = api_wind if scada_mode else st.sidebar.number_input("سرعة الرياح (m/s)", value=8.0)
+live_temp = api_temp if scada_mode else st.sidebar.number_input("درجة الحرارة المحيطة (°C)", value=39.0)
+live_wind = api_wind if scada_mode else st.sidebar.number_input("سرعة الرياح (m/s)", value=10.0)
 
 st.sidebar.subheader("محاكاة العواصف الرملية في صحراء الوسطى")
-dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة بمرمول", value=False)
+dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة بالوسطى", value=False)
 storm_soiling_penalty = st.sidebar.slider("معامل الغبار الإضافي (%)", min_value=5.0, max_value=50.0, value=18.0) if dust_storm_active else 0.0
 
 st.sidebar.subheader("التحكم المستقل بحقول الألواح")
 inverter_configs = {}
 for i in range(num_blocks):
-    inv_name = f"Marmoul Field Block {i+1}"
+    inv_name = f"Al Wusta Field Block {i+1}"
     with st.sidebar.expander(f"إعدادات {inv_name}", expanded=(i==0)):
         soil = st.slider(f"نسبة الغبار (%) - Block {i+1}", 0.0, 45.0, float(3.0 + i * 2.5 + storm_soiling_penalty), key=f"soil_{i}")
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-# إحداثيات مدروسة تبعد تماماً عن الطرق الصحراوية وتوزيع دقيق للحقول
+# إحداثيات مدروسة في عمق صحراء الوسطى بعيداً عن الطرق
 offsets = [
-    (0.035, 0.035),   # الحقل الأول (شمال شرق بعيد عن الطريق)
-    (-0.025, 0.045),  # الحقل الثاني (شرق)
-    (-0.04, -0.035),  # الحقل الثالث (جنوب غرب)
-    (0.015, -0.04)    # الحقل الرابع (جنوب شرق)
+    (0.04, 0.04),
+    (-0.03, 0.05),
+    (-0.04, -0.04),
+    (0.02, -0.05)
 ]
 
 polygon_data = []
 for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     off_lat, off_lon = offsets[i % len(offsets)]
-    center_lat = MARMOUL_LAT + off_lat
-    center_lon = MARMOUL_LON + off_lon
+    center_lat = AL_WUSTA_LAT + off_lat
+    center_lon = AL_WUSTA_LON + off_lon
     
     dx, dy = 0.012, 0.007
     polygon = [
@@ -88,19 +88,19 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
 df_poly = pd.DataFrame(polygon_data)
 
 tab1, tab2, tab3 = st.tabs([
-    "🗺️ الخريطة الجغرافية وحقول الألواح التفصيلية", 
+    "🗺️ الخريطة الجغرافية (محافظة الوسطى)", 
     "☀️ العرض المجسم للحقول (3D Diorama)", 
     "💰 الاقتصاديات والتقارير الذكية"
 ])
 
 with tab1:
-    st.subheader("📍 التوزيع الجغرافي لحقول الألواح (بعيداً عن الطرق الصحراوية)")
-    st.markdown("خريطة تفاعلية لصحراء مرمول؛ تم إبعاد المضلعات تماماً عن مسارات الطرق وتظهر بداخلها مصفوفات الألواح الشمسية:")
+    st.subheader("📍 التوزيع الجغرافي لحقول الألواح في صحراء محافظة الوسطى")
+    st.markdown("خريطة تفاعلية مركزة في عمق صحراء الوسطى؛ بعيدة عن الطرق الرئيسية وتوضح مصفوفات الألواح الداخلية:")
 
     layer = pdk.Layer(
         "PolygonLayer",
         df_poly,
-        id="solar-fields-safe",
+        id="al-wusta-fields",
         get_polygon="polygon",
         get_fill_color="color",
         get_line_color=[255, 255, 255],
@@ -111,9 +111,9 @@ with tab1:
     )
 
     view_state = pdk.ViewState(
-        latitude=MARMOUL_LAT,
-        longitude=MARMOUL_LON,
-        zoom=10,
+        latitude=AL_WUSTA_LAT,
+        longitude=AL_WUSTA_LON,
+        zoom=9,
         pitch=20,
         bearing=0
     )
@@ -128,9 +128,8 @@ with tab1:
     st.pydeck_chart(r)
 
     st.markdown("---")
-    st.subheader("🔍 معاينة شبكة الألواح الداخلية لكل حقل جغرافياً")
+    st.subheader("🔍 شبكة الألواح الداخلية لكل حقل في الوسطى")
     
-    # عرض تفصيلي لشبكة الألواح لكل حقل تحت الخريطة لضمان الدقة البصرية المطلوبة
     cols = st.columns(2)
     for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
         soiling = cfg['soiling']
@@ -178,7 +177,7 @@ with tab1:
                     <div style="background: {p_color}; height: 26px; border-radius: 3px; border: 1px solid #93c5fd;"></div>
                 </div>
             </div>
-            <p style="margin: 8px 0 0 0; font-size: 12px; color: #cbd5e1;">نسبة الغبار الحالية: <b>{soiling}%</b> | الحالة: <b>{'حرج' if is_critical else 'طبيعي'}</b></p>
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #cbd5e1;">نسبة الغبار: <b>{soiling}%</b> | الحالة: <b>{'حرج' if is_critical else 'طبيعي'}</b></p>
         </div>
         """
         with cols[i % 2]:
@@ -208,7 +207,7 @@ with tab2:
             box-shadow: 0 12px 25px rgba(0,0,0,0.6);
         ">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">🌱 {inv_name} (مرمول)</h4>
+                <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">🌱 {inv_name} (محافظة الوسطى)</h4>
                 <span style="background: {'#ef4444' if is_critical else '#0284c7'}; color: white; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">{status_text}</span>
             </div>
             
@@ -256,7 +255,7 @@ with tab3:
             client = genai.Client(api_key=gemini_api_key)
             response = client.interactions.create(
                 model='gemini-3.6-flash',
-                input=f"قدم تقريراً استراتيجياً لموقع محطة مرمول للطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في صحراء الوسطى بسلطنة عمان."
+                input=f"قدم تقريراً استراتيجياً لموقع محطة الطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في صحراء محافظة الوسطى بسلطنة عمان."
             )
             st.markdown(response.output_text)
         except Exception as e:
