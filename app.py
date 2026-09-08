@@ -9,10 +9,10 @@ from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul Geo-Spatial Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Desert Geo-Spatial & 3D Twin")
-st.markdown("التوأم الرقمي الجغرافي المؤسسي - خريطة حية لصحراء مرمول (الوسطى) مع مصفوفات ألواح مستطيلة تفاعلية.")
+st.title("⚡ RE-OPT: Marmoul Desert Geo-Spatial & Solar Twin")
+st.markdown("التوأم الرقمي الجغرافي المؤسسي - خريطة حية لصحراء مرمول (الوسطى) مع حقول ألواح أفقية تفاعلية.")
 
-# إحداثيات صحراء مرمول (عمان)
+# إحداثيات صحراء مرمول الحقيقية (عمان)
 MARMOUL_LAT, MARMOUL_LON = 18.15, 55.18
 
 @st.cache_data(ttl=600)
@@ -52,7 +52,7 @@ for i in range(num_blocks):
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-# تجهيز مضلعات مستطيلة حقيقية (Polygons) للألواح على الخريطة بدل الأسطوانات
+# تجهيز مضلعات مستطيلة مستوية تمثل حقول الألواح على الخريطة الجغرافية
 polygon_data = []
 np.random.seed(42)
 for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
@@ -61,7 +61,6 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     center_lat = MARMOUL_LAT + lat_offset
     center_lon = MARMOUL_LON + lon_offset
     
-    # رسم مستطيل يمثل حقل الألواح الشمسية جغرافياً
     dx, dy = 0.008, 0.005
     polygon = [
         [center_lon - dx, center_lat - dy],
@@ -71,40 +70,39 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
     ]
     
     is_critical = cfg['soiling'] > 12.0 or dust_storm_active
-    color = [239, 68, 68, 200] if is_critical else [14, 165, 233, 200] # أحمر عند الخطر، أزرق للنظيف
+    # ألوان واضحة للحقول على الخريطة الجغرافية
+    color = [239, 68, 68, 230] if is_critical else [30, 64, 175, 230] 
     
     polygon_data.append({
         "name": inv_name,
         "polygon": polygon,
         "soiling": cfg['soiling'],
-        "elevation": float(cfg['soiling'] * 30),
-        "status": "🚨 خطر تلوث رملي" if is_critical else "✅ أداء طبيعي",
+        "status": "🚨 خطر تلوث رملي حرج" if is_critical else "✅ أداء طبيعي وسليم",
         "color": color
     })
 
 df_poly = pd.DataFrame(polygon_data)
 
 tab1, tab2, tab3 = st.tabs([
-    "🗺️ الخريطة الجغرافية ثلاثية الأبعاد لصحراء مرمول", 
+    "🗺️ الخريطة الجغرافية الحية لصحراء مرمول", 
     "☀️ العرض المجسم للحقول (3D Diorama)", 
     "💰 الاقتصاديات والتقارير الذكية"
 ])
 
 with tab1:
-    st.subheader("📍 التوزيع الجغرافي لمصفوفات الألواح المستطيلة في صحراء مرمول")
-    st.markdown("خريطة تفاعلية واضحة تماماً لصحراء مرمول بالوسطى؛ تعرض حقول الألواح كمستطيلات بارزة تتغير ألوانها بناءً على نسبة الغبار:")
+    st.subheader("📍 التوزيع الجغرافي لحقول الألواح في صحراء مرمول (سلطنة عمان)")
+    st.markdown("خريطة تفاعلية واضحة لمعالم الصحراء تظهر عليها حقول الألواح مستوية وأفقية؛ تتغير ألوانها تلقائياً بين الأزرق والأحمر حسب الغبار:")
 
-    # طبقة المضلعات المستطيلة ثلاثية الأبعاد (تغني عن الأسطوانات وعن الحاجة لمفتاح Mapbox)
+    # طبقة مضلعات أفقية مستوية (extruded=False لضمان عدم ظهورها كأبراج)
     layer = pdk.Layer(
         "PolygonLayer",
         df_poly,
-        id="geojson",
+        id="solar-fields",
         get_polygon="polygon",
         get_fill_color="color",
-        get_elevation="elevation",
-        elevation_scale=10,
-        extruded=True,
-        wireframe=True,
+        get_line_color=[255, 255, 255],
+        line_width_min_pixels=2,
+        extruded=False, 
         pickable=True,
         auto_highlight=True,
     )
@@ -113,15 +111,15 @@ with tab1:
         latitude=MARMOUL_LAT,
         longitude=MARMOUL_LON,
         zoom=10,
-        pitch=50,
-        bearing=20
+        pitch=25,
+        bearing=0
     )
 
-    # استخدام خريطة CARTO التي لا تتطلب مفتاح API وتظهر معالم الأرض بوضوح
+    # استخدام خريطة CARTO Voyager المضيئة والواضحة للرؤية الجغرافية بدون مفتاح Mapbox
     r = pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
-        map_style="carto-darkmatter",
+        map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
         tooltip={"text": "الحقل: {name}\nالحالة: {status}\nنسبة الغبار: {soiling}%"}
     )
 
