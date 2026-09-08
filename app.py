@@ -7,53 +7,54 @@ import pydeck as pdk
 import streamlit.components.v1 as components
 from google import genai
 
-st.set_page_config(page_title="RE-OPT: Al Wusta Geo-Spatial Solar Twin", layout="wide")
+st.set_page_config(page_title="RE-OPT: Al Wusta Autonomous Solar Twin", layout="wide")
 
-# تعريف نقطة مرجعية (Anchor) للقفز السريع عند الضغط على الزر
 st.markdown('<div id="top-anchor"></div>', unsafe_allow_html=True)
 
-st.title("⚡ RE-OPT: Al Wusta Desert (Marmoul) Geo-Spatial & Detailed Solar Array Twin")
-st.markdown("التوأم الرقمي المؤسسي - خريطة حية لصحراء محافظة الوسطى مع مصفوفات الألواح التفصيلية داخل الحقول بعيداً عن الطرق.")
-
-# زر سريع في الأعلى للانتقال المباشر إلى قسم الحقول والألواح عند الضغوطات أو التشتت
-col_jump1, col_jump2 = st.columns([1, 4])
-with col_jump1:
-    if st.button("🎯 الانتقال المباشر لحقول الألواح"):
-        st.balloons()
+st.title("⚡ RE-OPT: Al Wusta Autonomous & Predictive Solar Twin")
+st.markdown("التوأم الرقمي المؤسسي - مدعوم بنظام ذكاء البيئة، التنبؤ بالترسبات، التحسين الذكي للتنظيف، والتحكم الجغرافي بالوسطى.")
 
 # إحداثيات دقيقة داخل محافظة الوسطى (Al Wusta Governorate, Oman)
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
 @st.cache_data(ttl=600)
-def fetch_live_weather(lat, lon):
+def fetch_live_weather_and_pm10(lat, lon):
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,wind_speed_10m"
+        # جلب بيانات الطقس الحية مع تقدير محاكي للـ PM10 والرياح في صحراء الوسطى
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,wind_speed_10m,wind_direction_10m"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
             current = data.get("current", {})
-            return current.get("temperature_2m", 39.0), current.get("wind_speed_10m", 10.0)
+            temp = current.get("temperature_2m", 39.0)
+            wind = current.get("wind_speed_10m", 10.0)
+            wind_dir = current.get("wind_direction_10m", 140.0)
+            # محاكاة مؤشر جودة الهواء وتركيز الغبار PM10 بناءً على سرعة الرياح
+            pm10 = min(350.0, max(45.0, wind * 12.5 + np.random.uniform(10, 40)))
+            return temp, wind, wind_dir, pm10
     except Exception:
         pass
-    return 39.0, 10.0
+    return 39.0, 10.0, 140.0, 85.0
 
-api_temp, api_wind = fetch_live_weather(AL_WUSTA_LAT, AL_WUSTA_LON)
+api_temp, api_wind, api_wind_dir, api_pm10 = fetch_live_weather_and_pm10(AL_WUSTA_LAT, AL_WUSTA_LON)
 
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
-
-if st.sidebar.button("🎯 العودة السريعة لمصفوفات الألواح"):
-    st.sidebar.success("تم التوجيه نحو قسم الألواح الحقلية!")
 
 total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
 total_capacity = total_capacity_mw * 1000 
 num_blocks = st.sidebar.selectbox("عدد حقول محولات الطاقة (Inverter Blocks)", [2, 4, 6, 8], index=1)
 
-scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA", value=True)
+scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA والبيئة", value=True)
 live_temp = api_temp if scada_mode else st.sidebar.number_input("درجة الحرارة المحيطة (°C)", value=39.0)
 live_wind = api_wind if scada_mode else st.sidebar.number_input("سرعة الرياح (m/s)", value=10.0)
+live_pm10 = api_pm10 if scada_mode else st.sidebar.number_input("تركيز الغبار PM10 (µg/m³)", value=85.0)
 
 st.sidebar.subheader("محاكاة العواصف الرملية في صحراء الوسطى")
 dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة بالوسطى", value=False)
+if dust_storm_active:
+    live_pm10 = max(live_pm10, 320.0)
+    live_wind = max(live_wind, 18.0)
+
 storm_soiling_penalty = st.sidebar.slider("معامل الغبار الإضافي (%)", min_value=5.0, max_value=50.0, value=18.0) if dust_storm_active else 0.0
 
 st.sidebar.subheader("التحكم المستقل بحقول الألواح")
@@ -61,11 +62,32 @@ inverter_configs = {}
 for i in range(num_blocks):
     inv_name = f"Al Wusta Field Block {i+1}"
     with st.sidebar.expander(f"إعدادات {inv_name}", expanded=(i==0)):
-        soil = st.slider(f"نسبة الغبار (%) - Block {i+1}", 0.0, 45.0, float(3.0 + i * 2.5 + storm_soiling_penalty), key=f"soil_{i}")
+        soil = st.slider(f"نسبة الغبار الحالي (%) - Block {i+1}", 0.0, 45.0, float(3.0 + i * 2.5 + storm_soiling_penalty), key=f"soil_{i}")
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-# إحداثيات مدروسة في عمق صحراء الوسطى بعيداً عن الطرق
+tariff = 0.025 # ر.ع لكل kWh
+
+# --- 1. Predictive Soiling & Environmental Intelligence Engine ---
+# محاكاة التنبؤ للـ 48 ساعة القادمة بناءً على مستويات PM10 وسرعة الرياح
+predicted_48h_soiling_loss_mwh = (live_pm10 / 50.0) * (num_blocks * 3.5) + (15.0 if dust_storm_active else 2.1)
+predicted_financial_risk_omr = predicted_48h_soiling_loss_mwh * 1000 * tariff
+
+# --- 3. Smart Cleaning Optimisation Engine ---
+cleaning_cost_per_session = 140.0 # تكلفة تشغيل روبوتات التنظيف الجاف للحقل
+potential_revenue_recovery = predicted_financial_risk_omr * 0.85
+net_cleaning_benefit = potential_revenue_recovery - cleaning_cost_per_session
+
+if dust_storm_active or live_pm10 > 250.0:
+    cleaning_decision = "⏳ انتظر — عاصفة نشطة متوقعة (تأجيل التنظيف 36 ساعة لتفادي هدر الموارد)"
+    decision_color = "orange"
+elif net_cleaning_benefit > 0:
+    cleaning_decision = f"🚀 ابدأ التنظيف الآن — صافي العائد المتوقع: +{net_cleaning_benefit:,.1f} ر.ع"
+    decision_color = "green"
+else:
+    cleaning_decision = "⏸️ حالة مستقرّة — لا داعي لتشغيل أسراب التنظيف حالياً"
+    decision_color = "blue"
+
 offsets = [
     (0.04, 0.04),
     (-0.03, 0.05),
@@ -100,8 +122,9 @@ for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
 
 df_poly = pd.DataFrame(polygon_data)
 
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "🗺️ الخريطة الجغرافية وحقول الألواح", 
+    "🔮 التنبؤ الذكي والتحسين (Predictive & Smart Cleaning)", 
     "☀️ العرض المجسم للحقول (3D Diorama)", 
     "💰 الاقتصاديات والتقارير الذكية"
 ])
@@ -197,6 +220,25 @@ with tab1:
             components.html(detail_card, height=210)
 
 with tab2:
+    st.subheader("🔮 1. ذكاء البيئة والتنبؤ بالترسبات (Predictive Soiling Model)")
+    st.markdown("نظام يتنبأ بالخسائر المستقبلية للـ 48 ساعة القادمة استناداً إلى تركيز جزيئات الغبار (PM10) وسرعة واتجاه الرياح في صحراء الوسطى:")
+    
+    col_p1, col_p2, col_p3 = st.columns(3)
+    col_p1.metric("تركيز الغبار الحالي (PM10)", f"{live_pm10:.1f} µg/m³")
+    col_p2.metric("فقد الطاقة المتوقع (48 ساعة)", f"{predicted_48h_soiling_loss_mwh:,.1f} MWh")
+    col_p3.metric("الخطر المالي المعرّض للهدر", f"{predicted_financial_risk_omr:,.2f} ر.ع")
+
+    st.markdown("---")
+    st.subheader("🧹 2. محرك التحسين الذكي للتنظيف (Smart Cleaning Optimisation)")
+    st.markdown("يقارن المحرك تلقائياً بين **العائد المستعاد** من التنظيف و**تكلفة تشغيل الأسراب الروبوتية** ليتخذ القرار الأمثل:")
+    
+    st.info(f"**قرار الوكيل الذكي:** {cleaning_decision}")
+    
+    sc_col1, sc_col2 = st.columns(2)
+    sc_col1.metric("العائد المتوقع من التنظيف", f"{potential_revenue_recovery:,.2f} ر.ع")
+    sc_col2.metric("تكلفة تشغيل أسراب الروبوتات", f"{cleaning_cost_per_session:,.2f} ر.ع")
+
+with tab3:
     st.subheader("☀️ عرض الحقول المجسمة (3D Diorama View)")
     cols = st.columns(2)
     for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
@@ -256,7 +298,7 @@ with tab2:
         with cols[i % 2]:
             components.html(diorama_html, height=260)
 
-with tab3:
+with tab4:
     st.subheader("💰 التحليل المالي والتقارير الذكية")
     c1, c2, c3 = st.columns(3)
     c1.metric("قدرة المحطة", f"{total_capacity_mw} MW")
@@ -268,7 +310,7 @@ with tab3:
             client = genai.Client(api_key=gemini_api_key)
             response = client.interactions.create(
                 model='gemini-3.6-flash',
-                input=f"قدم تقريراً استراتيجياً لموقع محطة الطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في صحراء محافظة الوسطى بسلطنة عمان."
+                input=f"قدم تقريراً استراتيجياً لموقع محطة الطاقة الشمسية بقدرة {total_capacity_mw} ميجاوات في صحراء محافظة الوسطى بسلطنة عمان، مع تحليل مؤشرات PM10 وتوقعات الـ 48 ساعة."
             )
             st.markdown(response.output_text)
         except Exception as e:
