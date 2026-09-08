@@ -8,8 +8,8 @@ from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Field Matrix")
-st.markdown("التوأم الرقمي المؤسسي - العرض البصري لحقول الألواح الشمسية المتكاملة في صحراء مرمول.")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - True 3D Diorama Field")
+st.markdown("التوأم الرقمي المؤسسي - العرض البصري ثلاثي الأبعاد المتقدم لحقول الألواح في صحراء مرمول.")
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -147,7 +147,7 @@ lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي لمحطة مرمول", 
     "🔍 التشخيص الذكي (FDD)", 
-    "☀️ حقل الألواح ثلاثي الأبعاد (Solar Field)", 
+    "☀️ حقل الألواح ثلاثي الأبعاد (3D Diorama)", 
     "💰 الاقتصاديات و LCOE", 
     "📋 أوامر الشغل الآلية"
 ])
@@ -197,8 +197,8 @@ with tab2:
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("☀️ عرض حقل الألواح ثلاثي الأبعاد (Marmoul 3D Solar Field)")
-    st.markdown("محاكاة بصرية لحقل شمسي متكامل (Low-Poly Diorama) يوضح صفوف الألواح فوق التربة الصحراوية مع مؤشرات الغبار:")
+    st.subheader("☀️ عرض حقل الألواح ثلاثي الأبعاد (Low-Poly Marmoul Field)")
+    st.markdown("محاكاة بصرية مجسمة (3D Diorama) تطابق تماماً تصميم الحقل البيئي مع الهياكل البارزة والظلال الصحراوية:")
 
     cols = st.columns(2)
     
@@ -207,14 +207,14 @@ with tab3:
         tilt = cfg['tilt']
         is_critical = soiling > 12.0 or dust_storm_active
         
-        panel_color = "#ef4444" if is_critical else "#1e3a8a"
-        status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ حقل نظيف"
+        panel_color = "#ef4444" if is_critical else "#1e40af"
+        status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ حقل نظيف ومنتج"
 
-        # تصميم يحاكي حقل الألواح فوق منصة أرضية صحراوية ثلاثية الأبعاد
-        field_html = f"""
+        # تصميم ثلاثي الأبعاد بارز يماثل الـ Diorama في الصورة تماماً
+        diorama_html = f"""
         <div style="
-            background: linear-gradient(135deg, #292524, #1c1917);
-            border: 2px solid {'#ef4444' if is_critical else '#38bdf8'};
+            background: #1e293b;
+            border: 2px solid {'#ef4444' if is_critical else '#0ea5e9'};
             border-radius: 16px;
             padding: 16px;
             margin-bottom: 20px;
@@ -222,54 +222,65 @@ with tab3:
             font-family: sans-serif;
             text-align: right;
             direction: rtl;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            box-shadow: 0 12px 25px rgba(0,0,0,0.6);
         ">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="margin: 0; color: #f5f5f4; font-size: 16px;">🌱 {inv_name} (حقل مرمول)</h4>
+                <h4 style="margin: 0; color: #f8fafc; font-size: 16px;">🌱 {inv_name} (حقل مرمول)</h4>
                 <span style="background: {'#ef4444' if is_critical else '#0284c7'}; color: white; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">{status_text}</span>
             </div>
             
-            <!-- محاكاة حقل الأرضية الصحراوية (Low-Poly Field Diorama) -->
+            <!-- منصة الحقل الصحراوي المجسمة (3D Diorama Box) -->
             <div style="
-                background: linear-gradient(to bottom, #d97706, #b45309);
-                border: 2px solid #78350f;
-                border-radius: 10px;
-                height: 130px;
+                background: linear-gradient(135deg, #d97706, #92400e);
+                border: 3px solid #78350f;
+                border-radius: 12px;
+                height: 160px;
                 position: relative;
                 overflow: hidden;
-                box-shadow: inset 0 5px 15px rgba(0,0,0,0.4);
+                box-shadow: inset 0 10px 20px rgba(0,0,0,0.5), 0 8px 16px rgba(0,0,0,0.4);
                 display: flex;
                 align-items: center;
                 justify-content: center;
             ">
-                <!-- صفوف الألواح الشمسية المائلة متعدّدة الصفوف -->
+                <!-- تأثير الإضاءة والظلال الصحراوية الجانبية -->
+                <div style="
+                    position: absolute;
+                    bottom: 0;
+                    left: 0;
+                    right: 0;
+                    height: 40%;
+                    background: linear-gradient(to top, rgba(0,0,0,0.4), transparent);
+                "></div>
+
+                <!-- مصفوفة الألواح البارزة بمنظور ثلاثي الأبعاد حقيقي (3D Transform) -->
                 <div style="
                     display: grid;
                     grid-template-columns: repeat(4, 1fr);
-                    gap: 6px;
-                    width: 85%;
-                    transform: perspective(400px) rotateX(25deg);
+                    gap: 8px;
+                    width: 80%;
+                    transform: perspective(600px) rotateX(40deg) rotateZ(-5deg);
+                    transform-style: preserve-3d;
                 ">
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
                     
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
-                    <div style="background: {panel_color}; height: 32px; border-radius: 4px; border: 1px solid #93c5fd; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
+                    <div style="background: {panel_color}; height: 38px; border-radius: 4px; border: 2px solid #93c5fd; box-shadow: 0 10px 15px rgba(0,0,0,0.5);"></div>
                 </div>
             </div>
 
-            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px; margin-top: 10px;">
+            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 6px; margin-top: 10px;">
                 <span>نسبة الغبار: <b>{soiling}%</b></span>
                 <span>زاوية الميل: <b>{tilt}°</b></span>
             </div>
         </div>
         """
         with cols[i % 2]:
-            components.html(field_html, height=240)
+            components.html(diorama_html, height=270)
 
     st.markdown("### 📊 جدول البيانات التشغيلية لحقول مرمول")
     table_view_data = []
