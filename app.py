@@ -331,8 +331,7 @@ with tab8:
     with sim_col2:
         sim_tariff_shift = st.slider("تغير تعرفة البيع (%)", -20, 30, 0)
 
-    # حساب النتائج الافتراضية بناءً على المحاكاة
-    simulated_loss_increase = total_financial_loss * (1 + sim_storm_increase / 100.0) * 365
+    simulated_loss_increase = daily_financial_loss * (1 + sim_storm_increase / 100.0) * 365
     simulated_new_lcoe = lcoe * (1 - (sim_extra_robots * 0.00005) + (sim_storm_increase * 0.0002))
     simulated_roi_boost = net_robotic_roi + (sim_extra_robots * 0.02)
 
