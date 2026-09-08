@@ -18,7 +18,6 @@ st.markdown("نظام التشغيل والقرار المؤسسي الموحد 
 
 AL_WUSTA_LAT, AL_WUSTA_LON = 19.55, 56.35
 
-# 1. Data Layer: طبقة البيانات مع الـ Timestamps ومصادر البيانات الموثقة
 @st.cache_data(ttl=600)
 def fetch_live_weather_metrics(lat, lon):
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -37,7 +36,6 @@ def fetch_live_weather_metrics(lat, lon):
 
 api_temp, api_wind, weather_source, data_timestamp = fetch_live_weather_metrics(AL_WUSTA_LAT, AL_WUSTA_LON)
 
-# 9. Security & Config: استخدام متغيرات البيئة / الأمان للـ API Key بدلاً من الإدخال العشوائي المفتوح
 gemini_api_key = st.sidebar.text_input("Gemini API Key (Enterprise Secret)", type="password", value="")
 
 st.sidebar.subheader("🎛️ 1. Data Layer & Sources")
@@ -84,7 +82,6 @@ for i in range(num_blocks):
         tilt = st.slider(f"زاوية الميل (Tilt °) - Block {i+1}", 5.0, 45.0, 22.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': soil, 'tilt': tilt}
 
-# 3. Data Quality Engine: فحص جودة البيانات وتحديد الشذوذ أو الخطأ
 if live_temp > 65.0 or live_temp < -10.0 or live_wind < 0 or live_pm10 < 0:
     sensor_health_status = "INVALID (Blocked by Data Quality Engine)"
 elif live_wind > 35.0:
@@ -92,7 +89,6 @@ elif live_wind > 35.0:
 else:
     sensor_health_status = "NORMAL (All Sensors Validated)"
 
-# 7. Persistent Work Orders: هيكل التخزين المستدام (SQLite/PostgreSQL Simulation State)
 if 'persistent_work_orders' not in st.session_state:
     st.session_state.persistent_work_orders = [
         {
@@ -106,7 +102,6 @@ if 'persistent_work_orders' not in st.session_state:
         }
     ]
 
-# 2. Real PVlib Physics: النمساج الفيزيائي الكامل (Solar Position -> POA -> Cell Temp -> DC -> Inverter AC)
 @st.cache_data
 def run_full_pvlib_pipeline_custom(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, custom_soiling_mod=1.0):
     tz = 'Asia/Muscat'
@@ -139,7 +134,7 @@ def run_full_pvlib_pipeline_custom(latitude, longitude, total_cap, n_inv, config
         poa_global = poa['poa_global'].fillna(0)
         
         cell_temp = pvlib.temperature.sapm_cell(
-            poa_global, t_amb, wind, temperature_model_parameters
+            poa_global, t_amb, wind, **temperature_model_parameters
         )
         
         temp_loss_factor = (1.0 + -0.0035 * (cell_temp - 25.0)).clip(lower=0.4)
@@ -175,14 +170,12 @@ total_energy_diff_kwh = ((df_total['إجمالي المحطة المتوقع AC 
 daily_financial_loss = max(0.0, abs(total_energy_diff_kwh) * tariff)
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
-# 4. Real Financial Engine: حساب LCOE و NPV و IRR و الفقد المالي
 base_annual_generation_mwh = (df_total['إجمالي الإنتاج الفعلي المحاكى AC (Simulated Actual)'].sum() * 365)
 plant_capex = total_capacity_mw * 330000.0 
 lifespan_years = 25
 
 pv_costs = 0.0
 pv_energy = 0.0
-cumulative_cash_flow = -plant_capex - initial_robot_capex
 irr_cash_flows = [-plant_capex - initial_robot_capex]
 
 for yr in range(1, lifespan_years + 1):
@@ -201,7 +194,7 @@ for yr in range(1, lifespan_years + 1):
 
 discounted_lcoe = pv_costs / max(1.0, pv_energy * 1000.0)
 approx_npv = sum([cf / ((1.0 + discount_rate) ** i) for i, cf in enumerate(irr_cash_flows)])
-approx_irr = discount_rate + 0.042 # تقدير عائد داخلي دقيق بناءً على التدفقات
+approx_irr = discount_rate + 0.042
 
 offsets = [(0.04, 0.04), (-0.03, 0.05), (-0.04, -0.04), (0.02, -0.05)]
 polygon_data = []
@@ -249,7 +242,6 @@ with tab0:
     cleaning_cost = 45.0
     net_benefit = revenue_at_risk - cleaning_cost
 
-    # 5. Decision Engine: قرار التنظيف المبني على الاقتصاديات الفعلية
     if sensor_health_status.startswith("INVALID"):
         decision_status = "BLOCKED (Data Quality Engine Triggered)"
         should_clean = False
