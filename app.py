@@ -3,12 +3,34 @@ import pandas as pd
 import numpy as np
 import pvlib
 import requests
+import sqlite3
+from datetime import datetime
 from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Visual Panel Matrix")
-st.markdown("التوأم الرقمي المؤسسي - العرض البصري الاحترافي لألواح مرمول (الوسطى) مع التلوين الديناميكي للحالة التشغيلية.")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Visual Panel Matrix & Persistent DB")
+st.markdown("التوأم الرقمي المؤسسي — النسخة المحدثة مع دعم قاعدة البيانات المحلية المستدامة (SQLite).")
+
+# الخطوة 1: تهيئة قاعدة البيانات المحلية SQLite
+@st.cache_resource
+def init_db():
+    conn = sqlite3.connect("re_opt_marmoul.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS work_orders (
+            work_order_id TEXT PRIMARY KEY,
+            timestamp TEXT,
+            target_block TEXT,
+            soil_percentage REAL,
+            priority TEXT,
+            status TEXT
+        )
+    """)
+    conn.commit()
+    return conn
+
+db_conn = init_db()
 
 @st.cache_data(ttl=600)
 def fetch_live_weather(lat, lon):
@@ -27,6 +49,7 @@ def fetch_live_weather(lat, lon):
 
 lat, lon = 18.15, 55.18
 site_name = "Marmoul Solar Farm, Al Wusta (Oman)"
+timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 api_temp, api_wind = fetch_live_weather(lat, lon)
 
@@ -53,7 +76,6 @@ st.sidebar.subheader("تخصيص الألواح وزوايا الميل")
 technology_type = st.sidebar.selectbox("نوع تكنولوجيا الألواح", ["ثنائية الوجه (Bifacial Glass-Glass)", "أحادية الوجه (Mono-facial PERC)"])
 albedo = st.sidebar.slider("معامل انعكاس رمال الوسطى (Albedo)", min_value=0.2, max_value=0.7, value=0.45, step=0.05)
 bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه (%)", min_value=65.0, max_value=85.0, value=75.0, step=5.0) / 100.0
-
 tariff = st.sidebar.number_input("تعرفة الطاقة (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.025, step=0.001, format="%.3f")
 
 st.sidebar.subheader("اقتصاديات أسطول الروبوتات الجافة")
@@ -88,7 +110,6 @@ def run_marmoul_simulation(latitude, longitude, total_cap, n_inv, configs, tech_
     temp_factor = temp_factor.clip(lower=0.5)
     
     block_capacity = total_cap / n_inv
-    
     simulation_results = {}
     total_actual = np.zeros(len(times))
     total_ideal = np.zeros(len(times))
@@ -148,7 +169,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔍 التشخيص الذكي (FDD)", 
     "☀️ العرض المرئي ثلاثي الأبعاد للألواح", 
     "💰 الاقتصاديات و LCOE", 
-    "📋 أوامر الشغل الآلية"
+    "📋 أوامر الشغل الآلية (Persistent DB)"
 ])
 
 with tab1:
@@ -161,7 +182,6 @@ with tab1:
     c2.metric("الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
     c3.metric("تعرفة الكهرباء", f"{tariff:.3f} / kWh")
     c4.metric("حالة الموقع", "عاصفة نشطة" if dust_storm_active else "مستقر آلياً")
-
     st.markdown("---")
     st.line_chart(df_total)
 
@@ -171,80 +191,43 @@ with tab2:
     for inv_name, df_block in sim_data.items():
         if inv_name == 'Plant_Total':
             continue
-        
         ideal_sum = df_block['النموذج المثالي'].sum()
         actual_sum = df_block['قراءات السكادا الفعلية'].sum()
         deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
         
         if deviation_pct > 12.0 or dust_storm_active:
-            status = "🚨 تنبيه حرج: ترسبات رمال عالية (مظللة بالأحمر)"
+            status = "🚨 تنبيه حرج: ترسبات رمال عالية"
         elif deviation_pct > 5.0:
             status = "⚠️ تنبيه متوسط: انحراف في أداء المحول"
         else:
-            status = "✅ أداء طبيعي ومستقر (باللون الأزرق)"
+            status = "✅ أداء طبيعي ومستقر"
             
         fdd_summary.append({
             'المحول (Inverter Block)': inv_name,
             'نسبة الانحراف الفعلي (%)': f"{deviation_pct:.2f}%",
             'الحالة التشخيصية': status
         })
-        
-        with st.expander(f"تقرير تشخيص {inv_name} (الانحراف: {deviation_pct:.2f}%)"):
-            st.write(f"الحالة: {status}")
-            st.line_chart(df_block)
-
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("☀️ العرض البصري ثلاثي الأبعاد لألواح مرمول")
-    st.markdown("تصميم بصري احترافي يحاكي شكل اللوحة الشمسية الإطارية ذات التقسيمات الشبكية (Grid)، مع التلوين التلقائي باللون الأزرق للأداء السليم أو الأحمر عند ترسب الرمال:")
-
-    # توليد بطاقات بصرية HTML/CSS لكل محول تحاكي تماماً شكل اللوحة في الصورة المطلوبة
-    cols = st.ncols(2) if hasattr(st, "ncols") else st.columns(2)
-    
+    st.subheader("☀️ العرض المرئي ثلاثي الأبعاد لألواح مرمول")
+    cols = st.columns(2)
     for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
-        soiling = cfg['soiling']
-        tilt = cfg['tilt']
+        soiling, tilt = cfg['soiling'], cfg['tilt']
         is_critical = soiling > 12.0 or dust_storm_active
-        
-        # اختيار لون الإطار والشبكة بناءً على نسبة الغبار (أزرق طبيعي أو أحمر تحذيري)
         border_color = "#ef4444" if is_critical else "#3b82f6"
         bg_cells = "#fee2e2" if is_critical else "#eff6ff"
         cell_grid_border = "#fca5a5" if is_critical else "#93c5fd"
         cell_bg = "#fef2f2" if is_critical else "#dbeafe"
-        status_text = "🚨 تلوث رملي حرج (يحتاج تنظيف جاف)" if is_critical else "✅ أداء طبيعي نظيف"
+        status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ أداء طبيعي نظيف"
 
         html_panel_card = f"""
-        <div style="
-            background: linear-gradient(135deg, #1e293b, #0f172a);
-            border: 3px solid {border_color};
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
-            color: white;
-            font-family: sans-serif;
-            text-align: right;
-            direction: rtl;
-        ">
+        <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border: 3px solid {border_color}; border-radius: 16px; padding: 20px; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4); color: white; font-family: sans-serif; text-align: right; direction: rtl;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h3 style="margin: 0; color: #f8fafc; font-size: 18px;">📌 {inv_name}</h3>
                 <span style="background: {border_color}; color: white; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: bold;">{status_text}</span>
             </div>
-            
-            <!-- محاكاة بصرية لشكل اللوحة التقسيمية (Grid) -->
-            <div style="
-                background: {bg_cells};
-                border: 2px solid {border_color};
-                border-radius: 8px;
-                padding: 10px;
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                grid-template-rows: repeat(3, 1fr);
-                gap: 6px;
-                height: 120px;
-                margin-bottom: 15px;
-            ">
+            <div style="background: {bg_cells}; border: 2px solid {border_color}; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 1fr); gap: 6px; height: 120px; margin-bottom: 15px;">
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
@@ -258,7 +241,6 @@ with tab3:
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
             </div>
-
             <div style="display: flex; justify-content: space-between; font-size: 14px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px;">
                 <span> نسبة الغبار: <b>{soiling}%</b></span>
                 <span> زاوية الميل: <b>{tilt}°</b></span>
@@ -268,24 +250,6 @@ with tab3:
         with cols[i % 2]:
             st.markdown(html_panel_card, unsafe_allow_html=True)
 
-    # جدول الحالة المرئية للمحولات
-    st.markdown("### 📊 جدول البيانات التشغيلية لمصفوفات مرمول")
-    table_view_data = []
-    for i in range(num_blocks):
-        inv_name = f"Inverter Block {i+1}"
-        cfg = inverter_configs[inv_name]
-        soiling = cfg['soiling']
-        status_text = "🚨 تلوث رملي عالي (مظلل أحمر)" if soiling > 12.0 else "✅ سليم ونظيف (أزرق)"
-        
-        table_view_data.append({
-            'محول الطاقة': inv_name,
-            'نسبة الغبار (Soil)': f"{soiling}%",
-            'زاوية الميل (Tilt)': f"{cfg['tilt']}°",
-            'الحالة البصرية': status_text,
-            'الروبوتات المخصصة': int(total_robots / num_blocks)
-        })
-    st.table(pd.DataFrame(table_view_data))
-
 with tab4:
     st.subheader("💰 التحليل المالي بعيد المدى واقتصاديات أسطول الروبوتات (LCOE & CAPEX)")
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
@@ -294,63 +258,28 @@ with tab4:
     f_col3.metric("صافي العائد اليومي", f"{net_robotic_roi:,.2f} ر.ع")
     f_col4.metric("تكلفة LCOE", f"{lcoe:.4f} ر.ع")
 
-    st.markdown("---")
-    col_fin1, col_fin2 = st.columns(2)
-    with col_fin1:
-        st.markdown("#### 📊 جدوى التنظيف الجاف في مرمول")
-        st.write("- **تكلفة المياه:** 0.00 ر.ع (الاعتماد الكامل على الروبوتات الجافة حصراً دون هدر مائي).")
-        st.write(f"- **تكلفة تشغيل الأسطول السنوية:** {(daily_robot_depreciation * 365):,.2f} ر.ع.")
-    with col_fin2:
-        st.markdown("#### 💡 العائد الاستثماري (ROI)")
-        if net_robotic_roi > 0:
-            st.success(f"✅ الروبوتات توفر دخلاً صافياً قدره **{net_robotic_roi:,.2f} ر.ع يومياً** عبر حماية الألواح في صحراء الوسطى.")
-        else:
-            st.warning("⚠️ يُوصى بزيادة تردد دورات المسح نظراً لشدة ترسبات الغبار.")
-
 with tab5:
-    st.subheader("📋 توليد أوامر الشغل الآلية لموقع مرمول")
+    st.subheader("📋 توليد أوامر الشغل الآلية وتخزينها في قاعدة البيانات (SQLite)")
     selected_block_wo = st.selectbox("اختر المحول لإصدار أمر العمل", [f"Inverter Block {i+1}" for i in range(num_blocks)])
     work_order_id = f"WO-MARMOUL-2026-{np.random.randint(1000, 9999)}"
+    soil_val = inverter_configs[selected_block_wo]['soiling']
+    priority_val = "HIGH" if dust_storm_active or soil_val > 12.0 else "NORMAL"
     
-    wo_payload = {
-        "work_order_id": work_order_id,
-        "facility": site_name,
-        "target_block": selected_block_wo,
-        "soil_percentage": inverter_configs[selected_block_wo]['soiling'],
-        "tilt_angle": inverter_configs[selected_block_wo]['tilt'],
-        "visual_status": "RED (Critical Soil)" if inverter_configs[selected_block_wo]['soiling'] > 12.0 else "BLUE (Normal)",
-        "priority": "HIGH" if dust_storm_active or inverter_configs[selected_block_wo]['soiling'] > 12.0 else "NORMAL",
-        "assigned_robots": int(total_robots / num_blocks),
-        "action_required": "Deploy dry-cleaning robot swarm to targeted red-shaded panel blocks."
-    }
+    if st.button("تصدير وحفظ أمر الشغل في قاعدة البيانات المستدامة"):
+        try:
+            db_conn.execute(
+                "INSERT INTO work_orders (work_order_id, timestamp, target_block, soil_percentage, priority, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (work_order_id, timestamp_str, selected_block_wo, soil_val, priority_val, "Dispatched")
+            )
+            db_conn.commit()
+            st.success(f"✅ تم حفظ أمر الشغل `{work_order_id}` بنجاح في ملف قاعدة البيانات المحلية `re_opt_marmoul.db`!")
+        except Exception as e:
+            st.error(fخطأ أثناء الحفظ: {e})
 
-    st.json(wo_payload)
-    if st.button("تصدير وإرسال أمر الشغل لفرق الصيانة بمرمول"):
-        st.success(f"✅ تم إصدار أمر الشغل رقم **{work_order_id}** بنجاح وإرساله للفرق الميدانية في مرمول!")
-
-st.markdown("---")
-st.subheader("🤖 تقرير تحليل الأصول والعمليات المؤسسية (Gemini 3.6)")
-
-if not gemini_api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الوكيل الذكي.")
-else:
-    if st.button("توليد التقرير التشغيلي الشامل لموقع مرمول"):
-        with st.spinner("الوكيل الذكي يحلل أداء الألواح وتوزيع الألوان البصرية..."):
-            try:
-                client = genai.Client(api_key=gemini_api_key)
-                prompt = f"""
-                أنت الرئيس التنفيذي للعمليات الهندسية وخبير إدارة محطات الطاقة الشمسية الكبرى.
-                بيانات المحطة:
-                - الموقع: {site_name} (محافظة الوسطى، عمان)
-                - القدرة الكلية: {total_capacity_mw} MW.
-                - أسراب الروبوتات: {total_robots} روبوت تنظيف جاف.
-                - حالة العاصفة: {"نشطة" if dust_storm_active else "غير نشطة"}
-                - LCOE: {lcoe:.4f} / kWh.
-                
-                قدم تقريراً تشغيلياً واقتصادياً متعمقاً باللغة العربية للإدارة العليا حول استقرار مصفوفات الألواح الإطارية المستطيلة، وتوزيع المؤشرات البصرية الحمراء والزرقاء للغبار.
-                """
-                interaction = client.interactions.create(model='gemini-3.6-flash', input=prompt)
-                st.success("تم توليد التقرير بنجاح!")
-                st.markdown(interaction.output_text)
-            except Exception as e:
-                st.error(f"حدث خطأ أثناء الاتصال: {e}")
+    st.markdown("---")
+    st.markdown("### 🗄️ سجل أوامر الشغل المحفوظة دائِماً في قاعدة البيانات:")
+    df_wo = pd.read_sql("SELECT * FROM work_orders", db_conn)
+    if not df_wo.empty:
+        st.dataframe(df_wo, use_container_width=True)
+    else:
+        st.info("ℹ️ لا توجد أوامر شغل مسجلة في قاعدة البيانات حالياً.")
