@@ -274,10 +274,10 @@ with tab5:
             db_conn.commit()
             st.success(f"✅ تم حفظ أمر الشغل `{work_order_id}` بنجاح في ملف قاعدة البيانات المحلية `re_opt_marmoul.db`!")
         except Exception as e:
-            st.error(fخطأ أثناء الحفظ: {e})
+            st.error(f"خطأ أثناء الحفظ: {e}")
 
     st.markdown("---")
-    st.markdown("### 🗄️ سجل أوامر الشغل المحفوظة دائِماً في قاعدة البيانات:")
+    st.markdown("### 🗄️ سجل أوامر الشغل المحفوظة دائماً في قاعدة البيانات:")
     df_wo = pd.read_sql("SELECT * FROM work_orders", db_conn)
     if not df_wo.empty:
         st.dataframe(df_wo, use_container_width=True)
