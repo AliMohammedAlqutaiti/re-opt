@@ -4,15 +4,16 @@ import numpy as np
 import pvlib
 import requests
 import sqlite3
+import hashlib
 from datetime import datetime
 from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - Structured Decision Object Engine")
-st.markdown("التوأم الرقمي المؤسسي — النسخة المحدثة مع محرك كائن القرار الهيكلي (Structured Decision Object).")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - Cryptographic Audit Chain Edition")
+st.markdown("التوأم الرقمي المؤسسي — النسخة المحدثة مع سجل التدقيق المشفر المؤمن (Tamper-Evident Event Chain).")
 
-# الخطوة 1: تهيئة قاعدة البيانات المحلية SQLite
+# تهيئة قاعدة البيانات المحلية SQLite (الجداول المحدثة للخطوتين 1 و 3)
 @st.cache_resource
 def init_db():
     conn = sqlite3.connect("re_opt_marmoul.db", check_same_thread=False)
@@ -27,6 +28,22 @@ def init_db():
             confidence REAL,
             net_benefit REAL,
             status TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_chain (
+            event_id TEXT PRIMARY KEY,
+            timestamp TEXT,
+            operator TEXT,
+            model_version TEXT,
+            input_hash TEXT,
+            decision TEXT,
+            reason_codes TEXT,
+            financial_impact REAL,
+            approval TEXT,
+            work_order_id TEXT,
+            previous_event_hash TEXT,
+            current_event_hash TEXT
         )
     """)
     conn.commit()
@@ -93,11 +110,11 @@ for i in range(num_blocks):
         inv_tilt = st.slider(f"زاوية ميل الألواح (Tilt °) - {inv_name}", min_value=5.0, max_value=45.0, value=float(22.0), step=1.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt': inv_tilt}
 
-# الخطوة 2: دالة كائن القرار الهيكلي (Structured Decision Object)
+# دالة كائن القرار الهيكلي (Structured Decision Object)
 def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val, wind_speed, is_storm):
     recoverable_kwh = (block_cap_mw * 1000.0) * (soil_pct / 100.0) * 5.5
     revenue_at_risk = recoverable_kwh * tariff_val
-    cleaning_cost = 45.0  # تكلفة تشغيلية تقديرية للدورة
+    cleaning_cost = 45.0 
     
     weather_risk = "HIGH" if wind_speed > 15.0 or is_storm else ("MODERATE" if wind_speed > 10.0 else "LOW")
     net_benefit = revenue_at_risk - cleaning_cost
@@ -125,6 +142,27 @@ def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val,
         "expected_net_benefit_omr": net_benefit,
         "weather_risk": weather_risk
     }
+
+# دالة تسجيل الأحداث في سلسلة التدقيق المشفرة (Tamper-Evident Audit Chain)
+def log_audit_event_to_chain(conn, event_id, operator, model_version, input_hash, decision_obj, approval, wo_id):
+    cursor = conn.cursor()
+    cursor.execute("SELECT current_event_hash FROM audit_chain ORDER BY ROWID DESC LIMIT 1")
+    last_row = cursor.fetchone()
+    prev_hash = last_row[0] if last_row else "0" * 64
+    
+    reason_str = f"Soiling: {decision_obj['soiling_percentage']}%, NetBenefit: {decision_obj['expected_net_benefit_omr']:.1f} OMR, Weather: {decision_obj['weather_risk']}"
+    raw_chain_str = f"{prev_hash}-{event_id}-{timestamp_str}-{decision_obj['decision']}-{reason_str}-{input_hash}"
+    curr_hash = hashlib.sha256(raw_chain_str.encode()).hexdigest()
+    
+    cursor.execute("""
+        INSERT OR REPLACE INTO audit_chain VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        event_id, timestamp_str, operator, model_version, input_hash, 
+        decision_obj['decision'], reason_str, decision_obj['expected_net_benefit_omr'], 
+        approval, wo_id, prev_hash, curr_hash
+    ))
+    conn.commit()
+    return curr_hash
 
 @st.cache_data
 def run_marmoul_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
@@ -197,12 +235,13 @@ total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciat
 total_lifetime_generation_mwh = annual_generation_mwh * 25
 lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 التوأم الرقمي لمحطة مرمول", 
     "🔍 التشخيص الذكي (FDD)", 
     "☀️ العرض المرئي ثلاثي الأبعاد والقرارات", 
     "💰 الاقتصاديات و LCOE", 
-    "📋 أوامر الشغل الآلية (Structured DB)"
+    "📋 أوامر الشغل والاعتماد",
+    "🛡️ سجل التدقيق المشفر (Audit Chain)"
 ])
 
 with tab1:
@@ -249,8 +288,6 @@ with tab3:
     
     for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
         soiling, tilt = cfg['soiling'], cfg['tilt']
-        
-        # استدعاء كائن القرار لكل حقل
         dec_obj = get_cleaning_decision_object(inv_name, soiling, block_cap_mw, tariff, live_wind, dust_storm_active)
         
         is_critical = dec_obj['decision'] == "CLEAN"
@@ -301,32 +338,53 @@ with tab4:
     f_col4.metric("تكلفة LCOE", f"{lcoe:.4f} ر.ع")
 
 with tab5:
-    st.subheader("📋 توليد أوامر الشغل الآلية وتخزين كائن القرار في قاعدة البيانات")
+    st.subheader("📋 توليد أوامر الشغل وبوابة الاعتماد (Human-in-the-Loop)")
     selected_block_wo = st.selectbox("اختر المحول لإصدار أمر العمل", [f"Inverter Block {i+1}" for i in range(num_blocks)])
     work_order_id = f"WO-MARMOUL-2026-{np.random.randint(1000, 9999)}"
+    event_id = f"EVT-{np.random.randint(100000, 999999)}"
     
     soil_val = inverter_configs[selected_block_wo]['soiling']
     block_cap_mw = total_capacity_mw / num_blocks
     current_dec_obj = get_cleaning_decision_object(selected_block_wo, soil_val, block_cap_mw, tariff, live_wind, dust_storm_active)
     
-    st.write("📊 معاينة كائن القرار (Decision Object Payload) الجاهز للحفظ:")
+    operator_name = st.text_input("اسم المشرف المسؤول", value="Mohammed Al Qutaiti (Lead Asset Operator)")
+    approval_toggle = st.checkbox(f"أوافق بصفتي مشرف العمليات على تنفيذ قرار `{current_dec_obj['decision']}` لـ {selected_block_wo}")
+    
     st.json(current_dec_obj)
     
-    if st.button("تصدير وحفظ كائن القرار وأمر الشغل في قاعدة البيانات"):
-        try:
-            db_conn.execute(
-                "INSERT INTO work_orders (work_order_id, timestamp, target_block, soil_percentage, decision_type, confidence, net_benefit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (work_order_id, timestamp_str, selected_block_wo, soil_val, current_dec_obj['decision'], current_dec_obj['confidence'], current_dec_obj['expected_net_benefit_omr'], "Dispatched")
-            )
-            db_conn.commit()
-            st.success(f"✅ تم حفظ أمر الشغل وكائن القرار برقم `{work_order_id}` بنجاح في قاعدة البيانات المستدامة!")
-        except Exception as e:
-            st.error(f"خطأ أثناء الحفظ: {e}")
+    if approval_toggle:
+        if st.button("🚀 اعتماد وتصدير أمر الشغل وتوثيق الحدث في السلسلة المشفرة"):
+            try:
+                # 1. حفظ أمر الشغل
+                db_conn.execute(
+                    "INSERT INTO work_orders (work_order_id, timestamp, target_block, soil_percentage, decision_type, confidence, net_benefit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (work_order_id, timestamp_str, selected_block_wo, soil_val, current_dec_obj['decision'], current_dec_obj['confidence'], current_dec_obj['expected_net_benefit_omr'], "Dispatched & Approved")
+                )
+                
+                # 2. توليد وتسجيل الحدث في سلسلة التدقيق المشفرة (Audit Chain)
+                input_hash = hashlib.sha256(str(current_dec_obj).encode()).hexdigest()
+                final_hash = log_audit_event_to_chain(
+                    db_conn, event_id, operator_name, "RE-OPT-V2.1-OQ", input_hash, 
+                    current_dec_obj, "Approved by Human Operator", work_order_id
+                )
+                
+                st.success(f"✅ تم إصدار أمر الشغل `{work_order_id}` وتوثيق الحدث المشفر بنجاح برقم بصمة: `{final_hash[:16]}...`")
+            except Exception as e:
+                st.error(f"خطأ أثناء الحفظ: {e}")
 
     st.markdown("---")
-    st.markdown("### 🗄️ سجل أوامر الشغل وكائنات القرار المحفوظة:")
+    st.markdown("### 🗄️ سجل أوامر الشغل المحفوظة:")
     df_wo = pd.read_sql("SELECT * FROM work_orders", db_conn)
     if not df_wo.empty:
         st.dataframe(df_wo, use_container_width=True)
     else:
-        st.info("ℹ️ لا توجد أوامر شغل مسجلة في قاعدة البيانات حالياً.")
+        st.info("ℹ️ لا توجد أوامر شغل مسجلة حالياً.")
+
+with tab6:
+    st.subheader("🛡️ سجل التدقيق المشفر (Tamper-Evident Audit Chain Ledger)")
+    st.markdown("سجل أحداث العمليات المؤسسي المؤمّن بربط السلاسل الت cryptographic (`Previous Event Hash` ⇄ `Current Event Hash`):")
+    df_audit = pd.read_sql("SELECT * FROM audit_chain", db_conn)
+    if not df_audit.empty:
+        st.dataframe(df_audit, use_container_width=True)
+    else:
+        st.info("ℹ️ لا توجد أحداث مسجلة في سلسلة التدقيق حتى الآن. قم باعتماد أمر شغل من التبويب السابق لتوليد أول حدث مشفر.")
