@@ -113,7 +113,6 @@ for i in range(num_blocks):
         inv_tilt = st.slider(f"زاوية ميل الألواح (Tilt °) - {inv_name}", min_value=5.0, max_value=45.0, value=float(22.0), step=1.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt': inv_tilt}
 
-# كائن القرار الهيكلي (Structured Decision Object)
 def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val, wind_speed, is_storm):
     recoverable_kwh = (block_cap_mw * 1000.0) * (soil_pct / 100.0) * 5.5
     revenue_at_risk = recoverable_kwh * tariff_val
@@ -146,7 +145,6 @@ def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val,
         "weather_risk": weather_risk
     }
 
-# تسجيل الأحداث في سلسلة التدقيق المشفرة (Tamper-Evident Audit Chain)
 def log_audit_event_to_chain(conn, event_id, operator, model_version, input_hash, decision_obj, approval, wo_id):
     cursor = conn.cursor()
     cursor.execute("SELECT current_event_hash FROM audit_chain ORDER BY ROWID DESC LIMIT 1")
@@ -167,7 +165,6 @@ def log_audit_event_to_chain(conn, event_id, operator, model_version, input_hash
     conn.commit()
     return curr_hash
 
-# الخطوة 4 (مصححة ومستقرة): محرك PVWatts للقدرة الكهربائية
 @st.cache_data
 def run_pvwatts_electrical_simulation(latitude, longitude, total_cap_mw, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, dc_ac, is_live):
     tz = 'Asia/Muscat'
@@ -202,9 +199,9 @@ def run_pvwatts_electrical_simulation(latitude, longitude, total_cap_mw, n_inv, 
             
         cell_temp = pvlib.temperature.sapm_cell(poa_global, t_amb, wind, **temp_model)
         
-        # استخدام نموذج PVWatts DC المعتظم والمستقر تماماً
+        # تم التصحيح هنا لاستخدام g_poa_effective
         dc_power_ideal = pvlib.pvsystem.pvwatts_dc(
-            g_poa=poa_global, temp_cell=cell_temp, pdc0=block_dc_w, gamma_pdc=-0.004
+            g_poa_effective=poa_global, temp_cell=cell_temp, pdc0=block_dc_w, gamma_pdc=-0.004
         ).fillna(0).clip(lower=0)
         
         soiling_loss = cfg['soiling'] / 100.0
@@ -212,7 +209,6 @@ def run_pvwatts_electrical_simulation(latitude, longitude, total_cap_mw, n_inv, 
         
         dc_power_actual = dc_power_ideal * (1.0 - 0.015) * (1.0 - soiling_loss - tilt_loss)
         
-        # تحويل DC إلى AC عبر محولات Sandia
         v_nominal = 600.0 * np.ones(len(times))
         ac_ideal = pvlib.inverter.sandia(v_nominal, dc_power_ideal, inv_params).fillna(0) / 1000.0
         ac_actual = pvlib.inverter.sandia(v_nominal, dc_power_actual, inv_params).fillna(0) / 1000.0
