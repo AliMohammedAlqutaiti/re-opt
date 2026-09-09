@@ -9,8 +9,8 @@ from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - 3D Visual Panel Matrix & Persistent DB")
-st.markdown("التوأم الرقمي المؤسسي — النسخة المحدثة مع دعم قاعدة البيانات المحلية المستدامة (SQLite).")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - Structured Decision Object Engine")
+st.markdown("التوأم الرقمي المؤسسي — النسخة المحدثة مع محرك كائن القرار الهيكلي (Structured Decision Object).")
 
 # الخطوة 1: تهيئة قاعدة البيانات المحلية SQLite
 @st.cache_resource
@@ -23,7 +23,9 @@ def init_db():
             timestamp TEXT,
             target_block TEXT,
             soil_percentage REAL,
-            priority TEXT,
+            decision_type TEXT,
+            confidence REAL,
+            net_benefit REAL,
             status TEXT
         )
     """)
@@ -40,9 +42,7 @@ def fetch_live_weather(lat, lon):
         if response.status_code == 200:
             data = response.json()
             current = data.get("current", {})
-            temp = current.get("temperature_2m", 37.0)
-            wind = current.get("wind_speed_10m", 8.0)
-            return temp, wind
+            return current.get("temperature_2m", 37.0), current.get("wind_speed_10m", 8.0)
     except Exception:
         pass
     return 37.0, 8.0
@@ -92,6 +92,39 @@ for i in range(num_blocks):
         inv_soiling = st.slider(f"نسبة الغبار والترسبات (%) - {inv_name}", min_value=0.0, max_value=45.0, value=float(base_s + storm_soiling_penalty), step=0.5, key=f"soil_{i}")
         inv_tilt = st.slider(f"زاوية ميل الألواح (Tilt °) - {inv_name}", min_value=5.0, max_value=45.0, value=float(22.0), step=1.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt': inv_tilt}
+
+# الخطوة 2: دالة كائن القرار الهيكلي (Structured Decision Object)
+def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val, wind_speed, is_storm):
+    recoverable_kwh = (block_cap_mw * 1000.0) * (soil_pct / 100.0) * 5.5
+    revenue_at_risk = recoverable_kwh * tariff_val
+    cleaning_cost = 45.0  # تكلفة تشغيلية تقديرية للدورة
+    
+    weather_risk = "HIGH" if wind_speed > 15.0 or is_storm else ("MODERATE" if wind_speed > 10.0 else "LOW")
+    net_benefit = revenue_at_risk - cleaning_cost
+
+    if is_storm or weather_risk == "HIGH":
+        decision = "DELAY"
+        confidence = 88.0
+    elif net_benefit > 50.0 and soil_pct > 12.0:
+        decision = "CLEAN"
+        confidence = 94.5
+    elif net_benefit > 0.0 and soil_pct > 8.0:
+        decision = "DELAY"
+        confidence = 76.0
+    else:
+        decision = "DO_NOT_CLEAN"
+        confidence = 99.0
+
+    return {
+        "decision": decision,
+        "confidence": confidence,
+        "soiling_percentage": soil_pct,
+        "energy_loss_mwh": recoverable_kwh / 1000.0,
+        "revenue_at_risk_omr": revenue_at_risk,
+        "cleaning_cost_omr": cleaning_cost,
+        "expected_net_benefit_omr": net_benefit,
+        "weather_risk": weather_risk
+    }
 
 @st.cache_data
 def run_marmoul_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
@@ -167,9 +200,9 @@ lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 التوأم الرقمي لمحطة مرمول", 
     "🔍 التشخيص الذكي (FDD)", 
-    "☀️ العرض المرئي ثلاثي الأبعاد للألواح", 
+    "☀️ العرض المرئي ثلاثي الأبعاد والقرارات", 
     "💰 الاقتصاديات و LCOE", 
-    "📋 أوامر الشغل الآلية (Persistent DB)"
+    "📋 أوامر الشغل الآلية (Structured DB)"
 ])
 
 with tab1:
@@ -210,22 +243,27 @@ with tab2:
     st.table(pd.DataFrame(fdd_summary))
 
 with tab3:
-    st.subheader("☀️ العرض المرئي ثلاثي الأبعاد لألواح مرمول")
+    st.subheader("☀️ العرض المرئي ثلاثي الأبعاد وكائن القرار الهيكلي (Decision Object)")
     cols = st.columns(2)
+    block_cap_mw = total_capacity_mw / num_blocks
+    
     for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
         soiling, tilt = cfg['soiling'], cfg['tilt']
-        is_critical = soiling > 12.0 or dust_storm_active
-        border_color = "#ef4444" if is_critical else "#3b82f6"
+        
+        # استدعاء كائن القرار لكل حقل
+        dec_obj = get_cleaning_decision_object(inv_name, soiling, block_cap_mw, tariff, live_wind, dust_storm_active)
+        
+        is_critical = dec_obj['decision'] == "CLEAN"
+        border_color = "#ef4444" if is_critical else ("#f59e0b" if dec_obj['decision'] == "DELAY" else "#3b82f6")
         bg_cells = "#fee2e2" if is_critical else "#eff6ff"
         cell_grid_border = "#fca5a5" if is_critical else "#93c5fd"
         cell_bg = "#fef2f2" if is_critical else "#dbeafe"
-        status_text = "🚨 تلوث رملي حرج" if is_critical else "✅ أداء طبيعي نظيف"
 
         html_panel_card = f"""
         <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border: 3px solid {border_color}; border-radius: 16px; padding: 20px; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4); color: white; font-family: sans-serif; text-align: right; direction: rtl;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h3 style="margin: 0; color: #f8fafc; font-size: 18px;">📌 {inv_name}</h3>
-                <span style="background: {border_color}; color: white; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: bold;">{status_text}</span>
+                <span style="background: {border_color}; color: white; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: bold;">القرار: {dec_obj['decision']} (ثقة: {dec_obj['confidence']}%)</span>
             </div>
             <div style="background: {bg_cells}; border: 2px solid {border_color}; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 1fr); gap: 6px; height: 120px; margin-bottom: 15px;">
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
@@ -241,9 +279,13 @@ with tab3:
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
                 <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 14px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px;">
-                <span> نسبة الغبار: <b>{soiling}%</b></span>
-                <span> زاوية الميل: <b>{tilt}°</b></span>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px; margin-bottom: 6px;">
+                <span> الغبار: <b>{soiling}%</b></span>
+                <span> الإيراد المهدد: <b>{dec_obj['revenue_at_risk_omr']:,.1f} ر.ع</b></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px;">
+                <span> صافي المنفعة: <b>{dec_obj['expected_net_benefit_omr']:,.1f} ر.ع</b></span>
+                <span> مخاطر الطقس: <b>{dec_obj['weather_risk']}</b></span>
             </div>
         </div>
         """
@@ -259,25 +301,30 @@ with tab4:
     f_col4.metric("تكلفة LCOE", f"{lcoe:.4f} ر.ع")
 
 with tab5:
-    st.subheader("📋 توليد أوامر الشغل الآلية وتخزينها في قاعدة البيانات (SQLite)")
+    st.subheader("📋 توليد أوامر الشغل الآلية وتخزين كائن القرار في قاعدة البيانات")
     selected_block_wo = st.selectbox("اختر المحول لإصدار أمر العمل", [f"Inverter Block {i+1}" for i in range(num_blocks)])
     work_order_id = f"WO-MARMOUL-2026-{np.random.randint(1000, 9999)}"
-    soil_val = inverter_configs[selected_block_wo]['soiling']
-    priority_val = "HIGH" if dust_storm_active or soil_val > 12.0 else "NORMAL"
     
-    if st.button("تصدير وحفظ أمر الشغل في قاعدة البيانات المستدامة"):
+    soil_val = inverter_configs[selected_block_wo]['soiling']
+    block_cap_mw = total_capacity_mw / num_blocks
+    current_dec_obj = get_cleaning_decision_object(selected_block_wo, soil_val, block_cap_mw, tariff, live_wind, dust_storm_active)
+    
+    st.write("📊 معاينة كائن القرار (Decision Object Payload) الجاهز للحفظ:")
+    st.json(current_dec_obj)
+    
+    if st.button("تصدير وحفظ كائن القرار وأمر الشغل في قاعدة البيانات"):
         try:
             db_conn.execute(
-                "INSERT INTO work_orders (work_order_id, timestamp, target_block, soil_percentage, priority, status) VALUES (?, ?, ?, ?, ?, ?)",
-                (work_order_id, timestamp_str, selected_block_wo, soil_val, priority_val, "Dispatched")
+                "INSERT INTO work_orders (work_order_id, timestamp, target_block, soil_percentage, decision_type, confidence, net_benefit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (work_order_id, timestamp_str, selected_block_wo, soil_val, current_dec_obj['decision'], current_dec_obj['confidence'], current_dec_obj['expected_net_benefit_omr'], "Dispatched")
             )
             db_conn.commit()
-            st.success(f"✅ تم حفظ أمر الشغل `{work_order_id}` بنجاح في ملف قاعدة البيانات المحلية `re_opt_marmoul.db`!")
+            st.success(f"✅ تم حفظ أمر الشغل وكائن القرار برقم `{work_order_id}` بنجاح في قاعدة البيانات المستدامة!")
         except Exception as e:
             st.error(f"خطأ أثناء الحفظ: {e}")
 
     st.markdown("---")
-    st.markdown("### 🗄️ سجل أوامر الشغل المحفوظة دائماً في قاعدة البيانات:")
+    st.markdown("### 🗄️ سجل أوامر الشغل وكائنات القرار المحفوظة:")
     df_wo = pd.read_sql("SELECT * FROM work_orders", db_conn)
     if not df_wo.empty:
         st.dataframe(df_wo, use_container_width=True)
