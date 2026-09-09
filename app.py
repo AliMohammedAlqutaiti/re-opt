@@ -10,8 +10,8 @@ from google import genai
 
 st.set_page_config(page_title="RE-OPT: Marmoul 3D Solar Twin", layout="wide")
 
-st.title("⚡ RE-OPT: Marmoul Solar Plant - Cryptographic Audit Chain Edition")
-st.markdown("التوأم الرقمي المؤسسي — النسخة المحدثة مع سجل التدقيق المشفر المؤمن (Tamper-Evident Event Chain).")
+st.title("⚡ RE-OPT: Marmoul Solar Plant - Full Electrical PVlib Physics Engine")
+st.markdown("التوأم الرقمي المؤسسي — النسخة المحدثة مع محرك الفيزياء الكهربائية الدقيق (PVlib Single-Diode Model) وسجل التدقيق المشفر.")
 
 # تهيئة قاعدة البيانات المحلية SQLite (الجداول المحدثة للخطوتين 1 و 3)
 @st.cache_resource
@@ -71,9 +71,13 @@ timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 api_temp, api_wind = fetch_live_weather(lat, lon)
 
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
-total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
-total_capacity = total_capacity_mw * 1000 
+total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة AC (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
 num_blocks = st.sidebar.selectbox("عدد محولات الطاقة الرئيسية (Inverter Blocks)", [2, 4, 6, 8], index=1)
+
+st.sidebar.subheader("⚡ إعدادات الطوبولوجيا الكهربائية للألواح")
+dc_ac_ratio = st.sidebar.slider("نسبة القدرة DC/AC Ratio", min_value=1.1, max_value=1.5, value=1.25, step=0.05)
+module_power_w = st.sidebar.selectbox("قدرة اللوح الشمسي الواحد (Watt)", [550, 600, 650, 700], index=1)
+modules_per_string = st.sidebar.number_input("عدد الألواح في السلسلة (Modules/String)", min_value=20, max_value=40, value=28)
 
 scada_mode = st.sidebar.toggle("تفعيل الربط الحي مع أنظمة SCADA", value=True)
 
@@ -110,7 +114,7 @@ for i in range(num_blocks):
         inv_tilt = st.slider(f"زاوية ميل الألواح (Tilt °) - {inv_name}", min_value=5.0, max_value=45.0, value=float(22.0), step=1.0, key=f"tilt_{i}")
         inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt': inv_tilt}
 
-# دالة كائن القرار الهيكلي (Structured Decision Object)
+# كائن القرار الهيكلي (Structured Decision Object)
 def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val, wind_speed, is_storm):
     recoverable_kwh = (block_cap_mw * 1000.0) * (soil_pct / 100.0) * 5.5
     revenue_at_risk = recoverable_kwh * tariff_val
@@ -143,7 +147,7 @@ def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val,
         "weather_risk": weather_risk
     }
 
-# دالة تسجيل الأحداث في سلسلة التدقيق المشفرة (Tamper-Evident Audit Chain)
+# تسجيل الأحداث في سلسلة التدقيق المشفرة (Tamper-Evident Audit Chain)
 def log_audit_event_to_chain(conn, event_id, operator, model_version, input_hash, decision_obj, approval, wo_id):
     cursor = conn.cursor()
     cursor.execute("SELECT current_event_hash FROM audit_chain ORDER BY ROWID DESC LIMIT 1")
@@ -164,72 +168,103 @@ def log_audit_event_to_chain(conn, event_id, operator, model_version, input_hash
     conn.commit()
     return curr_hash
 
+# الخطوة 4: محرك الفيزياء الكهربائية الدقيق باستخدام PVlib (Single-Diode Model)
 @st.cache_data
-def run_marmoul_simulation(latitude, longitude, total_cap, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, is_live):
+def run_pvlib_electrical_simulation(latitude, longitude, total_cap_mw, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, mod_watt, mod_per_string, dc_ac, is_live):
     tz = 'Asia/Muscat'
     times = pd.date_range('2026-06-01 06:00:00', '2026-06-01 18:00:00', freq='h', tz=tz)
     location = pvlib.location.Location(latitude, longitude, tz=tz)
+    solpos = location.get_solarposition(times)
     clearsky = location.get_clearsky(times)
     
-    peak_ghi = 1000.0
-    ghi = clearsky['ghi']
+    block_ac_w = (total_cap_mw / n_inv) * 1e6
+    block_dc_w = block_ac_w * dc_ac
+    string_nominal_w = mod_per_string * float(mod_watt)
+    strings_per_block = int(block_dc_w / string_nominal_w)
     
-    noct = 47.0
-    cell_temp = t_amb + (ghi / 800.0) * (noct - 20.0) * (9.5 / (5.7 + 3.8 * wind))
-    temp_coeff = -0.0034
-    temp_factor = 1.0 + temp_coeff * (cell_temp - 25.0)
-    temp_factor = temp_factor.clip(lower=0.5)
+    mod_params = {
+        'alpha_sc': 0.005, 'a_ref': 2.0, 'I_L_ref': 15.6, 'I_o_ref': 1e-10,
+        'R_sh_ref': 1000.0, 'R_s': 0.2, 'EgRef': 1.121, 'dEgdT': -0.0002677
+    }
+    inv_params = {
+        'Paco': block_ac_w, 'Pdco': block_ac_w * 1.02, 'Vdco': 1100.0, 
+        'Pso': block_ac_w * 0.002, 'C0': -0.00001, 'C1': 0.00001, 'C2': 0.001, 
+        'C3': -0.0001, 'Pnt': block_ac_w * 0.001
+    }
+    temp_model = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['open_rack_glass_glass']
     
-    block_capacity = total_cap / n_inv
     simulation_results = {}
-    total_actual = np.zeros(len(times))
-    total_ideal = np.zeros(len(times))
+    total_expected_ac = np.zeros(len(times))
+    total_actual_ac = np.zeros(len(times))
     
-    for i in range(n_inv):
-        inv_name = f"Inverter Block {i+1}"
-        cfg = configs[inv_name]
-        
-        base_power = (ghi / peak_ghi) * block_capacity
-        base_power = base_power.clip(lower=0)
-        
-        ideal_power = base_power * temp_factor
+    for i, (inv_name, cfg) in enumerate(configs.items()):
+        tilt_angle = cfg['tilt']
+        poa = pvlib.irradiance.get_total_irradiance(
+            surface_tilt=tilt_angle, surface_azimuth=180,
+            solar_zenith=solpos['apparent_zenith'], solar_azimuth=solpos['azimuth'],
+            dni=clearsky['dni'], ghi=clearsky['ghi'], dhi=clearsky['dhi'], albedo=alb
+        )
+        poa_global = poa['poa_global'].fillna(0).clip(lower=0)
         if "ثنائية الوجه" in tech_mode:
-            bif_gain = 1.0 + (alb * bif_factor * 0.20)
-            ideal_power *= bif_gain
+            poa_global = poa_global * (1.0 + (alb * bif_factor * 0.15))
             
-        total_degradation = cfg['soiling'] + (abs(cfg['tilt'] - 22.0) * 0.2)
-        actual_factor = max(0.0, 1.0 - (total_degradation / 100.0))
+        cell_temp = pvlib.temperature.sapm_cell(poa_global, t_amb, wind, **temp_model)
+        IL, I0, Rs, Rsh, nNsVth = pvlib.pvsystem.calcparams_desoto(
+            effective_irradiance=poa_global, temp_cell=cell_temp, 
+            alpha_sc=mod_params['alpha_sc'], a_ref=mod_params['a_ref'], 
+            I_L_ref=mod_params['I_L_ref'], I_o_ref=mod_params['I_o_ref'], 
+            R_sh_ref=mod_params['R_sh_ref'], R_s=mod_params['R_s'], 
+            EgRef=mod_params['EgRef'], dEgdT=mod_params['dEgdT']
+        )
+        sd_out = pvlib.pvsystem.singlediode(IL, I0, Rs, Rsh, nNsVth)
+        p_mp_module = sd_out['p_mp'].fillna(0)
+        v_mp_module = sd_out['v_mp'].fillna(0)
+        
+        p_mp_array = p_mp_module * mod_per_string * strings_per_block
+        v_mp_array = v_mp_module * mod_per_string
+        
+        soiling_loss = cfg['soiling'] / 100.0
+        tilt_loss = abs(tilt_angle - 22.0) * 0.003
+        
+        dc_power_ideal = p_mp_array
+        dc_power_actual = dc_power_ideal * (1.0 - 0.015) * (1.0 - soiling_loss - tilt_loss)
+        v_mp_safe = v_mp_array.replace(0, inv_params['Vdco'])
+        
+        ac_ideal = pvlib.inverter.sandia(v_mp_safe, dc_power_ideal, inv_params).fillna(0) / 1000.0
+        ac_actual = pvlib.inverter.sandia(v_mp_safe, dc_power_actual, inv_params).fillna(0) / 1000.0
         
         if is_live:
             np.random.seed(300 + i)
-            noise = np.random.normal(1.0, 0.006, len(times))
-            actual_power = ideal_power * actual_factor * noise
-        else:
-            actual_power = ideal_power * actual_factor
+            noise = np.random.normal(1.0, 0.008, len(times))
+            ac_actual = ac_actual * noise
             
         simulation_results[inv_name] = pd.DataFrame({
-            'النموذج المثالي': ideal_power,
-            'قراءات السكادا الفعلية': actual_power
+            'النموذج المثالي (AC)': ac_ideal,
+            'قراءات السكادا الفعلية (AC)': ac_actual
         }, index=times)
         
-        total_ideal += ideal_power
-        total_actual += actual_power
+        total_expected_ac += ac_ideal
+        total_actual_ac += ac_actual
 
     simulation_results['Plant_Total'] = pd.DataFrame({
-        'إجمالي المثالي للمحطة': total_ideal,
-        'إجمالي قراءات السكادا الفعلية': total_actual
+        'إجمالي المثالي للمحطة (AC)': total_expected_ac,
+        'إجمالي قراءات السكادا الفعلية (AC)': total_actual_ac
     }, index=times)
     
     return simulation_results
 
-sim_data = run_marmoul_simulation(lat, lon, total_capacity, num_blocks, inverter_configs, technology_type, albedo, bifaciality_factor, live_temp, live_wind, scada_mode)
+sim_data = run_pvlib_electrical_simulation(
+    lat, lon, total_capacity_mw, num_blocks, inverter_configs, 
+    technology_type, albedo, bifaciality_factor, live_temp, live_wind, 
+    module_power_w, modules_per_string, dc_ac_ratio, scada_mode
+)
 
 df_total = sim_data['Plant_Total']
-total_plant_loss_kwh = (df_total['إجمالي المثالي للمحطة'] - df_total['إجمالي قراءات السكادا الفعلية']).sum()
-daily_financial_loss = max(0.0, abs(total_plant_loss_kwh) * tariff)
+total_plant_loss_kwh = (df_total['إجمالي المثالي للمحطة (AC)'] - df_total['إجمالي قراءات السكادا الفعلية (AC)']).sum() * 1000.0
+daily_financial_loss = max(0.0, abs(total_plant_loss_kwh) * tariff / 1000.0)
 net_robotic_roi = daily_financial_loss - daily_robot_depreciation
 
-annual_generation_mwh = (df_total['إجمالي قراءات السكادا الفعلية'].sum() * 365) / 1000.0
+annual_generation_mwh = (df_total['إجمالي قراءات السكادا الفعلية (AC)'].sum() * 365)
 plant_capex = total_capacity_mw * 330000.0 
 total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciation * 365 * 25)
 total_lifetime_generation_mwh = annual_generation_mwh * 25
@@ -248,7 +283,7 @@ with tab1:
     if dust_storm_active:
         st.error("🚨 **تحذير طارئ في مرمول:** عاصفة رملية تؤثر على حقول الطاقة بالوسطى وتم تفعيل طوارئ الروبوتات.")
     
-    st.subheader(f"📈 إنتاجية المحطة الفعلية ({site_name})")
+    st.subheader(f"📈 إنتاجية المحطة الفعلية حسب محرك PVlib ({site_name})")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
     c2.metric("الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
@@ -263,8 +298,8 @@ with tab2:
     for inv_name, df_block in sim_data.items():
         if inv_name == 'Plant_Total':
             continue
-        ideal_sum = df_block['النموذج المثالي'].sum()
-        actual_sum = df_block['قراءات السكادا الفعلية'].sum()
+        ideal_sum = df_block['النموذج المثالي (AC)'].sum()
+        actual_sum = df_block['قراءات السكادا الفعلية (AC)'].sum()
         deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
         
         if deviation_pct > 12.0 or dust_storm_active:
@@ -355,13 +390,11 @@ with tab5:
     if approval_toggle:
         if st.button("🚀 اعتماد وتصدير أمر الشغل وتوثيق الحدث في السلسلة المشفرة"):
             try:
-                # 1. حفظ أمر الشغل
                 db_conn.execute(
                     "INSERT INTO work_orders (work_order_id, timestamp, target_block, soil_percentage, decision_type, confidence, net_benefit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (work_order_id, timestamp_str, selected_block_wo, soil_val, current_dec_obj['decision'], current_dec_obj['confidence'], current_dec_obj['expected_net_benefit_omr'], "Dispatched & Approved")
                 )
                 
-                # 2. توليد وتسجيل الحدث في سلسلة التدقيق المشفرة (Audit Chain)
                 input_hash = hashlib.sha256(str(current_dec_obj).encode()).hexdigest()
                 final_hash = log_audit_event_to_chain(
                     db_conn, event_id, operator_name, "RE-OPT-V2.1-OQ", input_hash, 
