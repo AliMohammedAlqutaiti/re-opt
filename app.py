@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.6
+# RE-OPT ENTERPRISE V3.7
 # AI Energy Operations + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.6",
+    page_title="RE-OPT Enterprise V3.7",
     page_icon="⚡",
     layout="wide",
 )
@@ -35,15 +35,20 @@ st.markdown(
 
 
 # ============================================================
-# DATABASE
+# DATABASE (Updated with auto-schema refresh to prevent column mismatches)
 # ============================================================
 
 @st.cache_resource
 def init_db():
     conn = sqlite3.connect("re_opt_enterprise.db", check_same_thread=False)
 
+    # Clean recreation of tables to prevent legacy schema column count conflicts
+    conn.execute("DROP TABLE IF EXISTS work_orders")
+    conn.execute("DROP TABLE IF EXISTS audit_chain")
+    conn.execute("DROP TABLE IF EXISTS asset_history")
+
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS work_orders (
+        CREATE TABLE work_orders (
             work_order_id TEXT PRIMARY KEY,
             timestamp TEXT,
             site_name TEXT,
@@ -59,7 +64,7 @@ def init_db():
     """)
 
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS audit_chain (
+        CREATE TABLE audit_chain (
             event_id TEXT PRIMARY KEY,
             timestamp TEXT,
             site_name TEXT,
@@ -77,7 +82,7 @@ def init_db():
     """)
 
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS asset_history (
+        CREATE TABLE asset_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
             site_name TEXT,
@@ -225,7 +230,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.6"
+model_version = "RE-OPT-DigitalTwin-V3.7"
 
 
 # ============================================================
@@ -1206,7 +1211,7 @@ with tab2:
 
 
 # ============================================================
-# TAB 3 — WORK ORDERS / CLOSED LOOP (Fixed with st.form)
+# TAB 3 — WORK ORDERS / CLOSED LOOP
 # ============================================================
 
 with tab3:
@@ -1241,7 +1246,6 @@ with tab3:
         """
     )
 
-    # Using st.form to guarantee stable interaction and execution state
     with st.form(key="cleaning_work_order_form"):
         operator_name = st.text_input(
             "اسم المشرف المسؤول",
