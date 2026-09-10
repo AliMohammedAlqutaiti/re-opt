@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.3
+# RE-OPT ENTERPRISE V3.5
 # AI Energy Operations + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.3",
+    page_title="RE-OPT Enterprise V3.5",
     page_icon="⚡",
     layout="wide",
 )
@@ -204,7 +204,7 @@ cleaning_cost = st.sidebar.number_input(
     step=5.0
 )
 
-st.sidebar.subheader("⚙️ نموذج تراكم الغبار")
+st.sidebar.subheader("⚙️ نموذج تراكم الغبار والتحكم التجريبي")
 
 dust_accumulation_speed = st.sidebar.slider(
     "معدل التراكم الأساسي لكل دورة (%)",
@@ -215,6 +215,9 @@ dust_accumulation_speed = st.sidebar.slider(
     format="%.3f"
 )
 
+enable_test_mode = st.sidebar.toggle("🚨 تفعيل وضع محاكاة الاتساخ السريع (Test Mode)", value=False)
+manual_test_soiling = st.sidebar.slider("نسبة اتساخ تجريبية فورية (%)", 0.0, 30.0, 12.0, 0.5)
+
 st.sidebar.subheader("🤖 AI Operations Agent")
 
 gemini_api_key = st.sidebar.text_input(
@@ -222,7 +225,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.3"
+model_version = "RE-OPT-DigitalTwin-V3.5"
 
 
 # ============================================================
@@ -507,18 +510,23 @@ def update_digital_twin(
     twin,
     weather,
     dust_speed,
+    test_mode,
+    test_soiling_val,
 ):
     twin.irradiance_w_m2 = weather["irradiance"]
     twin.ambient_temp_c = weather["temperature"]
     twin.wind_speed_m_s = weather["wind_speed"]
     twin.humidity_pct = weather["humidity"]
 
-    twin.soiling_pct = update_soiling(
-        twin.soiling_pct,
-        dust_speed,
-        twin.wind_speed_m_s,
-        twin.humidity_pct,
-    )
+    if test_mode:
+        twin.soiling_pct = test_soiling_val
+    else:
+        twin.soiling_pct = update_soiling(
+            twin.soiling_pct,
+            dust_speed,
+            twin.wind_speed_m_s,
+            twin.humidity_pct,
+        )
 
     twin.module_temp_c = estimate_module_temperature(
         twin.ambient_temp_c,
@@ -641,6 +649,8 @@ for asset_id, twin in st.session_state.digital_twins.items():
         twin,
         weather,
         dust_accumulation_speed,
+        enable_test_mode,
+        manual_test_soiling,
     )
 
     evaluate_asset(
@@ -968,64 +978,29 @@ with tab1:
 
     card_cols = st.columns(min(num_blocks, 3))
 
+    # Clean native Streamlit UI components replacing raw HTML string templates
     for i, twin in enumerate(twin_list):
 
         with card_cols[i % len(card_cols)]:
-
             decision = twin.recommendation
 
-            if decision == "CLEAN":
-                border = "#ef4444"
-            elif "Safety" in decision:
-                border = "#f59e0b"
-            else:
-                border = "#3b82f6"
-
-            st.markdown(
-                f"""
-                <div style="
-                    background:#0f172a;
-                    border:2px solid {border};
-                    border-radius:12px;
-                    padding:16px;
-                    color:white;
-                    margin-bottom:14px;
-                ">
-                    <div style="
-                        display:flex;
-                        justify-content:space-between;
-                        align-items:center;
-                    ">
-                        <h3 style="margin:0;">{twin.name}</h3>
-                        <b>{twin.asset_id}</b>
-                    </div>
-
-                    <hr>
-
-                    <b>Health Score:</b>
-                    {twin.health_score:.0f}/100<br>
-
-                    <b>Soiling:</b>
-                    {twin.soiling_pct:.2f}%<br>
-
-                    <b>Expected Power:</b>
-                    {twin.expected_power_mw:.2f} MW<br>
-
-                    <b>Actual Power:</b>
-                    {twin.actual_power_mw:.2f} MW<br>
-
-                    <b>Performance Ratio:</b>
-                    {twin.performance_ratio_pct:.1f}%<br>
-
-                    <b>AI Decision:</b>
-                    {decision}<br>
-
-                    <b>Confidence:</b>
-                    {twin.confidence:.0f}%
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                col_title, col_id = st.columns([2, 1])
+                with col_title:
+                    st.markdown(f"#### {twin.name}")
+                with col_id:
+                    st.markdown(f"**`{twin.asset_id}`**")
+                
+                st.divider()
+                
+                st.metric("Health Score", f"{twin.health_score:.0f}/100")
+                
+                st.write(f"**Soiling Level:** {twin.soiling_pct:.2f}%")
+                st.write(f"**Expected Power:** {twin.expected_power_mw:.2f} MW")
+                st.write(f"**Actual Power:** {twin.actual_power_mw:.2f} MW")
+                st.write(f"**Performance Ratio:** {twin.performance_ratio_pct:.1f}%")
+                st.write(f"**AI Decision:** `{decision}`")
+                st.write(f"**Confidence:** {twin.confidence:.0f}%")
 
     st.markdown("### 📡 Live Asset Telemetry")
 
@@ -1129,7 +1104,6 @@ with tab2:
 
     st.markdown("### 📋 Digital Twin Asset State Report")
 
-    # Clean, human-readable structured display replacing raw st.json()
     info_col1, info_col2, info_col3 = st.columns(3)
 
     with info_col1:
@@ -1301,6 +1275,8 @@ with tab3:
             twin_wo,
             weather,
             0.0,
+            enable_test_mode,
+            manual_test_soiling,
         )
 
         evaluate_asset(
