@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.7
+# RE-OPT ENTERPRISE V3.8
 # AI Energy Operations + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.7",
+    page_title="RE-OPT Enterprise V3.8",
     page_icon="⚡",
     layout="wide",
 )
@@ -35,20 +35,15 @@ st.markdown(
 
 
 # ============================================================
-# DATABASE (Updated with auto-schema refresh to prevent column mismatches)
+# DATABASE
 # ============================================================
 
 @st.cache_resource
 def init_db():
     conn = sqlite3.connect("re_opt_enterprise.db", check_same_thread=False)
 
-    # Clean recreation of tables to prevent legacy schema column count conflicts
-    conn.execute("DROP TABLE IF EXISTS work_orders")
-    conn.execute("DROP TABLE IF EXISTS audit_chain")
-    conn.execute("DROP TABLE IF EXISTS asset_history")
-
     conn.execute("""
-        CREATE TABLE work_orders (
+        CREATE TABLE IF NOT EXISTS work_orders (
             work_order_id TEXT PRIMARY KEY,
             timestamp TEXT,
             site_name TEXT,
@@ -64,7 +59,7 @@ def init_db():
     """)
 
     conn.execute("""
-        CREATE TABLE audit_chain (
+        CREATE TABLE IF NOT EXISTS audit_chain (
             event_id TEXT PRIMARY KEY,
             timestamp TEXT,
             site_name TEXT,
@@ -82,7 +77,7 @@ def init_db():
     """)
 
     conn.execute("""
-        CREATE TABLE asset_history (
+        CREATE TABLE IF NOT EXISTS asset_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
             site_name TEXT,
@@ -230,7 +225,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.7"
+model_version = "RE-OPT-DigitalTwin-V3.8"
 
 
 # ============================================================
@@ -646,7 +641,49 @@ def evaluate_asset(
 
 
 # ============================================================
-# UPDATE ALL TWINS
+# HISTORY LOGGER
+# ============================================================
+
+def log_asset_history(conn, site, twin):
+    conn.execute(
+        """
+        INSERT INTO asset_history (
+            timestamp,
+            site_name,
+            asset_id,
+            soiling_pct,
+            irradiance_w_m2,
+            ambient_temp_c,
+            module_temp_c,
+            expected_power_mw,
+            actual_power_mw,
+            performance_ratio,
+            health_score,
+            decision
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            site,
+            twin.asset_id,
+            twin.soiling_pct,
+            twin.irradiance_w_m2,
+            twin.ambient_temp_c,
+            twin.module_temp_c,
+            twin.expected_power_mw,
+            twin.actual_power_mw,
+            twin.performance_ratio_pct,
+            twin.health_score,
+            twin.recommendation,
+        )
+    )
+
+    conn.commit()
+
+
+# ============================================================
+# UPDATE ALL TWINS & AUTO-LOG BASELINE HISTORY
 # ============================================================
 
 for asset_id, twin in st.session_state.digital_twins.items():
@@ -664,6 +701,13 @@ for asset_id, twin in st.session_state.digital_twins.items():
         cleaning_cost,
         api_wind,
     )
+
+# Automatically log baseline history on startup if table is empty
+cursor = db_conn.cursor()
+cursor.execute("SELECT COUNT(*) FROM asset_history")
+if cursor.fetchone()[0] == 0:
+    for twin in st.session_state.digital_twins.values():
+        log_asset_history(db_conn, site_name, twin)
 
 
 # ============================================================
@@ -753,48 +797,6 @@ def log_audit_event(
     conn.commit()
 
     return current_hash
-
-
-# ============================================================
-# HISTORY LOGGER
-# ============================================================
-
-def log_asset_history(conn, site, twin):
-    conn.execute(
-        """
-        INSERT INTO asset_history (
-            timestamp,
-            site_name,
-            asset_id,
-            soiling_pct,
-            irradiance_w_m2,
-            ambient_temp_c,
-            module_temp_c,
-            expected_power_mw,
-            actual_power_mw,
-            performance_ratio,
-            health_score,
-            decision
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            site,
-            twin.asset_id,
-            twin.soiling_pct,
-            twin.irradiance_w_m2,
-            twin.ambient_temp_c,
-            twin.module_temp_c,
-            twin.expected_power_mw,
-            twin.actual_power_mw,
-            twin.performance_ratio_pct,
-            twin.health_score,
-            twin.recommendation,
-        )
-    )
-
-    conn.commit()
 
 
 # ============================================================
