@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.1
+# RE-OPT ENTERPRISE V3.2
 # AI Energy Operations + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.1",
+    page_title="RE-OPT Enterprise V3.2",
     page_icon="⚡",
     layout="wide",
 )
@@ -222,7 +222,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.1"
+model_version = "RE-OPT-DigitalTwin-V3.2"
 
 
 # ============================================================
@@ -829,10 +829,16 @@ Do not invent sensor measurements.
 Separate modeled values from observed weather values.
 """
 
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=prompt,
-        )
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=prompt,
+            )
+        except Exception:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=prompt,
+            )
 
         text = getattr(response, "text", None)
 
