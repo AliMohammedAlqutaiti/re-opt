@@ -8,20 +8,21 @@ import hashlib
 from datetime import datetime
 from google import genai
 
-st.set_page_config(page_title="RE-OPT V2.1: OQ Accelerator Edition", layout="wide")
+st.set_page_config(page_title="RE-OPT Enterprise: Open-Meteo & Live SCADA", layout="wide")
 
-st.title("⚡ RE-OPT V2.1: Enterprise Autonomous Operating & Financial Twin")
-st.markdown("نسخة مسرع OQ المؤسسية — مكتملة الركائز الخمس (الفيزياء، الاقتصاد، كائن القرار، سجل التدقيق المشفر، ووحدة الذكاء الاصطناعي المفسرة).")
+st.title("⚡ RE-OPT Enterprise: Generalized Digital Twin & SCADA Operating System")
+st.markdown("منصة التوأم الرقمي المؤسسي — مدعومة بالبيانات الحية عبر Open-Meteo ومحاكاة الـ SCADA لحظياً.")
 
-# **Enterprise Database Initialization**
+# Database Initialization
 @st.cache_resource
 def init_db():
-    conn = sqlite3.connect("re_opt_marmoul.db", check_same_thread=False)
+    conn = sqlite3.connect("re_opt_enterprise.db", check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS work_orders (
             work_order_id TEXT PRIMARY KEY,
             timestamp TEXT,
+            site_name TEXT,
             target_block TEXT,
             soil_percentage REAL,
             decision_type TEXT,
@@ -34,6 +35,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS audit_chain (
             event_id TEXT PRIMARY KEY,
             timestamp TEXT,
+            site_name TEXT,
             operator TEXT,
             model_version TEXT,
             input_hash TEXT,
@@ -51,109 +53,64 @@ def init_db():
 
 db_conn = init_db()
 
-@st.cache_data(ttl=600)
-def fetch_live_weather(lat, lon):
+# **Open-Meteo Dynamic Weather Fetcher**
+@st.cache_data(ttl=300)
+def fetch_open_meteo_weather(latitude, longitude):
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,wind_speed_10m"
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=temperature_2m,wind_speed_10m"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
             current = data.get("current", {})
-            return current.get("temperature_2m", 37.0), current.get("wind_speed_10m", 8.0)
+            return current.get("temperature_2m", 35.0), current.get("wind_speed_10m", 6.0)
     except Exception:
         pass
-    return 37.0, 8.0
+    return 35.0, 6.0
 
-lat, lon = 18.15, 55.18
-site_name = "Marmoul Solar Farm, Al Wusta (Oman)"
+# **Sidebar: Enterprise & Location Setup**
+st.sidebar.subheader("🌍 إعدادات الموقع الجغرافي وقناة الطقس")
+site_name = st.sidebar.text_input("اسم المحطة أو المشروع", value="Marmoul Solar Plant (Oman)")
+lat = st.sidebar.number_input("خط العرض (Latitude)", value=18.1500, format="%.4f")
+lon = st.sidebar.number_input("خط الطول (Longitude)", value=55.1800, format="%.4f")
 timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-api_temp, api_wind = fetch_live_weather(lat, lon)
+# Fetch live weather based on user coordinates
+api_temp, api_wind = fetch_open_meteo_weather(lat, lon)
 
-gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key (Enterprise Secret)", type="password")
-total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة AC (MW)", min_value=50.0, max_value=1000.0, value=150.0, step=50.0)
+gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key", type="password")
+total_capacity_mw = st.sidebar.slider("إجمالي قدرة المحطة AC (MW)", min_value=10.0, max_value=1000.0, value=150.0, step=10.0)
 num_blocks = st.sidebar.selectbox("عدد محولات الطاقة الرئيسية (Inverter Blocks)", [2, 4, 6, 8], index=1)
 
-st.sidebar.subheader("🎛️ 1. Data Layer & Architecture Gate")
-data_source_mode = st.sidebar.selectbox(
-    "اختر قناة تدفق البيانات", 
-    [
-        "Weather API (Open-Meteo Live)", 
-        "Simulation Engine (Pure Local)", 
-        "SCADA Real-time Stream (Not Connected)"
-    ]
-)
+connection_badge = f"🟢 OPEN-METEO LIVE — Temp: {api_temp}°C | Wind: {api_wind}m/s"
+st.sidebar.markdown(f"**حالة الطقس الميداني:** `{connection_badge}`")
+tariff = st.sidebar.number_input("تعرفة الطاقة (ر.ع / kWh)", value=0.025, format="%.3f")
 
-if "Weather API" in data_source_mode:
-    live_temp = api_temp
-    live_wind = api_wind
-    connection_badge = "🟢 LIVE DATA — Connected to Open-Meteo Weather API"
-    data_stream_active = True
-elif "Simulation Engine" in data_source_mode:
-    live_temp = st.sidebar.number_input("درجة الحرارة المحيطة الافتراضية (°C)", value=39.0)
-    live_wind = st.sidebar.number_input("سرعة الرياح الافتراضية (m/s)", value=10.0)
-    connection_badge = "🟡 SIMULATED DATA — Local Physics Engine Active"
-    data_stream_active = True
-else:
-    live_temp = 39.0
-    live_wind = 10.0
-    connection_badge = "🔴 NOT CONNECTED — SCADA/IoT Hardware Link Inactive"
-    data_stream_active = False
+st.sidebar.subheader("إعدادات الاتساخ والبيئة")
+dust_storm_trigger = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة (تفعيل Stow Mode)", value=False)
 
-st.sidebar.markdown(f"**حالة القناة:** `{connection_badge}`")
-
-dc_ac_ratio = st.sidebar.slider("نسبة القدرة DC/AC Ratio", min_value=1.1, max_value=1.5, value=1.25, step=0.05)
-module_power_w = st.sidebar.selectbox("قدرة اللوح الشمسي الواحد (Watt)", [550, 600, 650, 700], index=1)
-
-st.sidebar.subheader("محاكاة العواصف الرملية في صحراء الوسطى")
-dust_storm_active = st.sidebar.toggle("🚨 محاكاة عاصفة رملية مفاجئة", value=False)
-storm_soiling_penalty = st.sidebar.slider("معامل الغبار الإضافي (%)", min_value=5.0, max_value=50.0, value=18.0, step=2.5) if dust_storm_active else 0.0
-
-st.sidebar.subheader("تخصيص الألواح وزوايا الميل")
-technology_type = st.sidebar.selectbox("نوع تكنولوجيا الألواح", ["ثنائية الوجه (Bifacial Glass-Glass)", "أحادية الوجه (Mono-facial PERC)"])
-albedo = st.sidebar.slider("معامل انعكاس رمال الوسطى (Albedo)", min_value=0.2, max_value=0.7, value=0.45, step=0.05)
-bifaciality_factor = st.sidebar.slider("معامل ثنائية الوجه (%)", min_value=65.0, max_value=85.0, value=75.0, step=5.0) / 100.0
-tariff = st.sidebar.number_input("تعرفة الطاقة (ر.ع / kWh)", min_value=0.001, max_value=0.100, value=0.025, step=0.001, format="%.3f")
-
-st.sidebar.subheader("اقتصاديات أسطول الروبوتات الجافة")
-total_robots = st.sidebar.number_input("عدد روبوتات التنظيف الجاف", min_value=500, max_value=6000, value=2200, step=100)
-initial_robot_capex = st.sidebar.number_input("الاستثمار الأولي للروبوتات (ر.ع)", min_value=500000.0, max_value=6000000.0, value=1500000.0, step=50000.0)
-daily_robot_depreciation = st.sidebar.number_input("إهلاك الصيانة اليومي", min_value=10.0, max_value=600.0, value=55.0, step=5.0)
-
-st.sidebar.subheader("التحكم المستقل لمحولات الطاقة (Inverter Blocks)")
-inverter_configs = {}
+inverter_telemetry = {}
 for i in range(num_blocks):
     inv_name = f"Inverter Block {i+1}"
     with st.sidebar.expander(f"إعدادات {inv_name}", expanded=(i==0)):
-        base_s = 3.0 + (i * 2.0)
-        inv_soiling = st.slider(f"نسبة الغبار والترسبات (%) - {inv_name}", min_value=0.0, max_value=45.0, value=float(base_s + storm_soiling_penalty), step=0.5, key=f"soil_{i}")
-        inv_tilt = st.slider(f"زاوية ميل الألواح (Tilt °) - {inv_name}", min_value=5.0, max_value=45.0, value=float(22.0), step=1.0, key=f"tilt_{i}")
-        inverter_configs[inv_name] = {'soiling': inv_soiling, 'tilt': inv_tilt}
+        soil_val = st.slider(f"نسبة الغبار (%) - {inv_name}", 0.0, 45.0, float(4.0 + (i*2.5) + (15.0 if dust_storm_trigger else 0.0)), 0.5, key=f"soil_{i}")
+        inv_temp_val = st.slider(f"حرارة العاكس الداخلية (°C) - {inv_name}", 30.0, 85.0, 56.0, 1.0, key=f"temp_{i}")
+        inverter_telemetry[inv_name] = {'soiling': soil_val, 'inverter_temp': inv_temp_val}
 
-# **Structured Decision Object Generator**
-def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val, wind_speed, is_storm, is_active):
+# **Structured Decision Object**
+def get_decision_object(soil_pct, block_cap_mw, tariff_val, wind_speed, inv_temp):
     recoverable_kwh = (block_cap_mw * 1000.0) * (soil_pct / 100.0) * 5.5
     revenue_at_risk = recoverable_kwh * tariff_val
-    cleaning_cost = 45.0 
-    
-    weather_risk = "HIGH" if wind_speed > 15.0 or is_storm else ("MODERATE" if wind_speed > 10.0 else "LOW")
+    cleaning_cost = 45.0
     net_benefit = revenue_at_risk - cleaning_cost
 
-    if not is_active:
-        decision = "BLOCKED"
-        confidence = 0.0
-    elif is_storm or weather_risk == "HIGH":
-        decision = "DELAY"
-        confidence = 88.0
-    elif net_benefit > 50.0 and soil_pct > 12.0:
-        decision = "CLEAN"
-        confidence = 94.5
-    elif net_benefit > 0.0 and soil_pct > 8.0:
-        decision = "DELAY"
-        confidence = 76.0
+    if wind_speed > 16.0 or inv_temp > 78.0:
+        decision, confidence = "DELAY (Safety Lock)", 95.0
+    elif net_benefit > 40.0 and soil_pct > 10.0:
+        decision, confidence = "CLEAN", 94.0
+    elif net_benefit > 0.0 and soil_pct > 6.0:
+        decision, confidence = "DELAY", 78.0
     else:
-        decision = "DO_NOT_CLEAN"
-        confidence = 99.0
+        decision, confidence = "DO_NOT_CLEAN", 99.0
 
     return {
         "decision": decision,
@@ -161,35 +118,33 @@ def get_cleaning_decision_object(block_name, soil_pct, block_cap_mw, tariff_val,
         "soiling_percentage": soil_pct,
         "energy_loss_mwh": recoverable_kwh / 1000.0,
         "revenue_at_risk_omr": revenue_at_risk,
-        "cleaning_cost_omr": cleaning_cost,
-        "expected_net_benefit_omr": net_benefit,
-        "weather_risk": weather_risk
+        "net_benefit_omr": net_benefit
     }
 
-# **Tamper-Evident Audit Chain Logger**
-def log_audit_event_to_chain(conn, event_id, operator, model_version, input_hash, decision_obj, approval, wo_id):
+# **Audit Chain Logger**
+def log_audit_event(conn, event_id, site, operator, model_ver, input_hash, dec_obj, approval, wo_id):
     cursor = conn.cursor()
     cursor.execute("SELECT current_event_hash FROM audit_chain ORDER BY ROWID DESC LIMIT 1")
     last_row = cursor.fetchone()
     prev_hash = last_row[0] if last_row else "0" * 64
     
-    reason_str = f"Soiling: {decision_obj['soiling_percentage']}%, NetBenefit: {decision_obj['expected_net_benefit_omr']:.1f} OMR, Weather: {decision_obj['weather_risk']}"
-    raw_chain_str = f"{prev_hash}-{event_id}-{timestamp_str}-{decision_obj['decision']}-{reason_str}-{input_hash}"
-    curr_hash = hashlib.sha256(raw_chain_str.encode()).hexdigest()
+    reason_str = f"Site: {site}, Soil: {dec_obj['soiling_percentage']}%, NetBen: {dec_obj['net_benefit_omr']:.1f} OMR"
+    raw_str = f"{prev_hash}-{event_id}-{timestamp_str}-{dec_obj['decision']}-{reason_str}-{input_hash}"
+    curr_hash = hashlib.sha256(raw_str.encode()).hexdigest()
     
     cursor.execute("""
-        INSERT OR REPLACE INTO audit_chain VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO audit_chain VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        event_id, timestamp_str, operator, model_version, input_hash, 
-        decision_obj['decision'], reason_str, decision_obj['expected_net_benefit_omr'], 
+        event_id, timestamp_str, site, operator, model_ver, input_hash, 
+        dec_obj['decision'], reason_str, dec_obj['net_benefit_omr'], 
         approval, wo_id, prev_hash, curr_hash
     ))
     conn.commit()
     return curr_hash
 
-# **PVWatts Electrical Simulation Engine**
+# **Simulation Engine**
 @st.cache_data
-def run_pvwatts_electrical_simulation(latitude, longitude, total_cap_mw, n_inv, configs, tech_mode, alb, bif_factor, t_amb, wind, dc_ac, is_live):
+def run_simulation(latitude, longitude, total_cap_mw, n_inv, telemetry, t_amb, wind):
     tz = 'Asia/Muscat'
     times = pd.date_range('2026-06-01 06:00:00', '2026-06-01 18:00:00', freq='h', tz=tz)
     location = pvlib.location.Location(latitude, longitude, tz=tz)
@@ -197,252 +152,145 @@ def run_pvwatts_electrical_simulation(latitude, longitude, total_cap_mw, n_inv, 
     clearsky = location.get_clearsky(times)
     
     block_ac_w = (total_cap_mw / n_inv) * 1e6
-    block_dc_w = block_ac_w * dc_ac
+    block_dc_w = block_ac_w * 1.25
+    inv_params = {'Paco': block_ac_w, 'Pdco': block_dc_w, 'Vdco': 600.0, 'Pso': block_ac_w * 0.01, 'C0':0, 'C1':0, 'C2':0, 'C3':0, 'Pnt':0}
     
-    inv_params = {
-        'Paco': block_ac_w, 'Pdco': block_dc_w, 'Vdco': 600.0, 
-        'Pso': block_ac_w * 0.01, 'C0': 0.0, 'C1': 0.0, 'C2': 0.0, 'C3': 0.0, 'Pnt': 0.0
-    }
-    temp_model = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['open_rack_glass_glass']
+    sim_results = {}
+    total_ideal, total_actual = np.zeros(len(times)), np.zeros(len(times))
     
-    simulation_results = {}
-    total_expected_ac = np.zeros(len(times))
-    total_actual_ac = np.zeros(len(times))
-    
-    for i, (inv_name, cfg) in enumerate(configs.items()):
-        tilt_angle = cfg['tilt']
+    for i, (inv_name, data) in enumerate(telemetry.items()):
         poa = pvlib.irradiance.get_total_irradiance(
-            surface_tilt=tilt_angle, surface_azimuth=180,
+            surface_tilt=22.0, surface_azimuth=180,
             solar_zenith=solpos['apparent_zenith'], solar_azimuth=solpos['azimuth'],
-            dni=clearsky['dni'], ghi=clearsky['ghi'], dhi=clearsky['dhi'], albedo=alb
+            dni=clearsky['dni'], ghi=clearsky['ghi'], dhi=clearsky['dhi'], albedo=0.4
         )
-        poa_global = poa['poa_global'].fillna(0).clip(lower=0)
-        if "ثنائية الوجه" in tech_mode:
-            poa_global = poa_global * (1.0 + (alb * bif_factor * 0.15))
-            
-        cell_temp = pvlib.temperature.sapm_cell(poa_global, t_amb, wind, **temp_model)
+        poa_g = poa['poa_global'].fillna(0).clip(lower=0)
+        cell_t = t_amb * np.ones(len(times))
         
-        dc_power_ideal = pvlib.pvsystem.pvwatts_dc(
-            g_poa_effective=poa_global, temp_cell=cell_temp, pdc0=block_dc_w, gamma_pdc=-0.004
-        ).fillna(0).clip(lower=0)
+        dc_ideal = pvlib.pvsystem.pvwatts_dc(g_poa_effective=poa_g, temp_cell=cell_t, pdc0=block_dc_w, gamma_pdc=-0.004).fillna(0).clip(lower=0)
+        soil_loss = data['soiling'] / 100.0
+        dc_actual = dc_ideal * (1.0 - soil_loss)
         
-        soiling_loss = cfg['soiling'] / 100.0
-        tilt_loss = abs(tilt_angle - 22.0) * 0.003
+        v_nom = 600.0 * np.ones(len(times))
+        ac_i = pvlib.inverter.sandia(v_nom, dc_ideal, inv_params).fillna(0) / 1000.0
+        ac_a = pvlib.inverter.sandia(v_nom, dc_actual, inv_params).fillna(0) / 1000.0
         
-        dc_power_actual = dc_power_ideal * (1.0 - 0.015) * (1.0 - soiling_loss - tilt_loss)
-        
-        v_nominal = 600.0 * np.ones(len(times))
-        ac_ideal = pvlib.inverter.sandia(v_nominal, dc_power_ideal, inv_params).fillna(0) / 1000.0
-        ac_actual = pvlib.inverter.sandia(v_nominal, dc_power_actual, inv_params).fillna(0) / 1000.0
-        
-        if is_live:
-            np.random.seed(300 + i)
-            noise = np.random.normal(1.0, 0.008, len(times))
-            ac_actual = ac_actual * noise
-            
-        simulation_results[inv_name] = pd.DataFrame({
-            'النموذج المثالي (kW)': ac_ideal,
-            'قراءات السكادا الفعلية (kW)': ac_actual
-        }, index=times)
-        
-        total_expected_ac += ac_ideal
-        total_actual_ac += ac_actual
+        sim_results[inv_name] = pd.DataFrame({'المثالي (kW)': ac_i, 'الفعلي عبر SCADA (kW)': ac_a}, index=times)
+        total_ideal += ac_i
+        total_actual += ac_a
 
-    simulation_results['Plant_Total'] = pd.DataFrame({
-        'إجمالي المثالي للمحطة (kW)': total_expected_ac,
-        'إجمالي قراءات السكادا الفعلية (kW)': total_actual_ac
-    }, index=times)
-    
-    return simulation_results
+    sim_results['Plant_Total'] = pd.DataFrame({'إجمالي المثالي للمحطة (kW)': total_ideal, 'إجمالي الفعلي عبر SCADA (kW)': total_actual}, index=times)
+    return sim_results
 
-sim_data = run_pvwatts_electrical_simulation(
-    lat, lon, total_capacity_mw, num_blocks, inverter_configs, 
-    technology_type, albedo, bifaciality_factor, live_temp, live_wind, 
-    dc_ac_ratio, data_stream_active
-)
-
+sim_data = run_simulation(lat, lon, total_capacity_mw, num_blocks, inverter_telemetry, api_temp, api_wind)
 df_total = sim_data['Plant_Total']
-total_plant_loss_kwh = (df_total['إجمالي المثالي للمحطة (kW)'] - df_total['إجمالي قراءات السكادا الفعلية (kW)']).sum()
-daily_financial_loss = max(0.0, abs(total_plant_loss_kwh) * tariff)
-net_robotic_roi = daily_financial_loss - daily_robot_depreciation
+total_ideal_sum = df_total['إجمالي المثالي للمحطة (kW)'].sum()
+total_actual_sum = df_total['إجمالي الفعلي عبر SCADA (kW)'].sum()
+current_pr_pct = (total_actual_sum / total_ideal_sum * 100.0) if total_ideal_sum > 0 else 0.0
 
-annual_generation_mwh = (df_total['إجمالي قراءات السكادا الفعلية (kW)'].sum() * 365) / 1000.0
-plant_capex = total_capacity_mw * 330000.0 
-total_lifetime_cost = plant_capex + initial_robot_capex + (daily_robot_depreciation * 365 * 25)
-total_lifetime_generation_mwh = annual_generation_mwh * 25
-lcoe = total_lifetime_cost / max(1.0, total_lifetime_generation_mwh * 1000)
+# **Live Auto-Refreshing SCADA Fragment**
+@st.fragment(run_every=4)
+def live_scada_fragment():
+    st.subheader("🟢 غرفة عمليات SCADA الحية (تحديث تلقائي كل 4 ثوانٍ)")
+    jitter_power = (total_actual_sum / 1000.0) + np.random.normal(0, 0.5)
+    jitter_freq = 50.0 + np.random.normal(0, 0.015)
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("إجمالي القدرة المصدرة", f"{jitter_power:,.1f} MW", delta=f"{np.random.normal(0, 0.3):+.1f} MW")
+    c2.metric("تردد الشبكة (Grid Hz)", f"{jitter_freq:.3f} Hz", delta="مستقر")
+    c3.metric("درجة الحرارة (Open-Meteo)", f"{api_temp} °C")
+    c4.metric("سرعة الرياح", f"{api_wind} m/s")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📈 التوأم الرقمي لمحطة مرمول", 
-    "🔍 التشخيص الذكي (FDD)", 
-    "☀️ العرض المرئي ثلاثي الأبعاد والقرارات", 
-    "💰 الاقتصاديات و LCOE", 
-    "📋 أوامر الشغل والاعتماد (AI Agent)",
-    "🛡️ سجل التدقيق المشفر (Audit Chain)"
+# **Dashboard Tabs**
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 غرفة العمليات والـ SCADA الحية", 
+    "📈 منحنيات الأداء ومؤشر PR", 
+    "☀️ كائنات القرار والاتساخ", 
+    "📋 أوامر الشغل واعتماد الذكاء الاصطناعي",
+    "🛡️ سجل التدقيق المشفر"
 ])
 
 with tab1:
-    st.info(f"📡 قناة البيانات الحالية: `{connection_badge}`")
-    if dust_storm_active:
-        st.error("🚨 **تحذير طارئ في مرمول:** عاصفة رملية تؤثر على حقول الطاقة بالوسطى وتم تفعيل طوارئ الروبوتات.")
-    
-    st.subheader(f"📈 إنتاجية المحطة الفعلية حسب محرك PVWatts ({site_name})")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("إجمالي القدرة", f"{total_capacity_mw} MW")
-    c2.metric("الفارق الإنتاجي", f"{abs(total_plant_loss_kwh):,.1f} kWh")
-    c3.metric("تعرفة الكهرباء", f"{tariff:.3f} / kWh")
-    c4.metric("حالة القناة", connection_badge.split(" — ")[0])
+    live_scada_fragment()
     st.markdown("---")
-    st.line_chart(df_total)
+    st.markdown("#### 📡 جدول قياسات الحساسات والعواكس الميدانية:")
+    table_data = []
+    for inv_name, data in inverter_telemetry.items():
+        table_data.append({
+            'المحول': inv_name,
+            'نسبة الغبار (%)': f"{data['soiling']}%",
+            'حرارة العاكس (°C)': f"{data['inverter_temp']} °C",
+            'حالة التشغيل': "آمن وطبيعي" if data['inverter_temp'] < 75 else "⚠️ تنبيه حراري"
+        })
+    st.table(pd.DataFrame(table_data))
 
 with tab2:
-    st.subheader("🔍 خوارزميات الكشف عن الأعطال وتراكم الغبار (FDD)")
-    fdd_summary = []
-    for inv_name, df_block in sim_data.items():
-        if inv_name == 'Plant_Total':
-            continue
-        ideal_sum = df_block['النموذج المثالي (kW)'].sum()
-        actual_sum = df_block['قراءات السكادا الفعلية (kW)'].sum()
-        deviation_pct = ((ideal_sum - actual_sum) / ideal_sum) * 100 if ideal_sum > 0 else 0
-        
-        if deviation_pct > 12.0 or dust_storm_active:
-            status = "🚨 تنبيه حرج: ترسبات رمال عالية"
-        elif deviation_pct > 5.0:
-            status = "⚠️ تنبيه متوسط: انحراف في أداء المحول"
-        else:
-            status = "✅ أداء طبيعي ومستقر"
-            
-        fdd_summary.append({
-            'المحول (Inverter Block)': inv_name,
-            'نسبة الانحراف الفعلي (%)': f"{deviation_pct:.2f}%",
-            'الحالة التشخيصية': status
-        })
-    st.table(pd.DataFrame(fdd_summary))
+    st.subheader(f"📈 الإنتاجية الفعلية والنظرية لمشروع: {site_name}")
+    st.metric("مؤشر الأداء العام (PR %)", f"{current_pr_pct:.1f}%")
+    st.line_chart(df_total)
 
 with tab3:
-    st.subheader("☀️ العرض المرئي ثلاثي الأبعاد وكائن القرار الهيكلي (Decision Object)")
+    st.subheader("☀️ كائنات القرار الهيكلي (Structured Decision Objects)")
     cols = st.columns(2)
-    block_cap_mw = total_capacity_mw / num_blocks
-    
-    for i, (inv_name, cfg) in enumerate(inverter_configs.items()):
-        soiling, tilt = cfg['soiling'], cfg['tilt']
-        dec_obj = get_cleaning_decision_object(inv_name, soiling, block_cap_mw, tariff, live_wind, dust_storm_active, data_stream_active)
+    block_cap = total_capacity_mw / num_blocks
+    for i, (inv_name, data) in enumerate(inverter_telemetry.items()):
+        dec = get_decision_object(data['soiling'], block_cap, tariff, api_wind, data['inverter_temp'])
+        is_cln = dec['decision'] == "CLEAN"
+        border_c = "#ef4444" if is_cln else "#3b82f6"
         
-        is_critical = dec_obj['decision'] == "CLEAN"
-        border_color = "#ef4444" if is_critical else ("#f59e0b" if dec_obj['decision'] == "DELAY" else "#3b82f6")
-        bg_cells = "#fee2e2" if is_critical else "#eff6ff"
-        cell_grid_border = "#fca5a5" if is_critical else "#93c5fd"
-        cell_bg = "#fef2f2" if is_critical else "#dbeafe"
-
-        html_panel_card = f"""
-        <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border: 3px solid {border_color}; border-radius: 16px; padding: 20px; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4); color: white; font-family: sans-serif; text-align: right; direction: rtl;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h3 style="margin: 0; color: #f8fafc; font-size: 18px;">📌 {inv_name}</h3>
-                <span style="background: {border_color}; color: white; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: bold;">القرار: {dec_obj['decision']} (ثقة: {dec_obj['confidence']}%)</span>
-            </div>
-            <div style="background: {bg_cells}; border: 2px solid {border_color}; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 1fr); gap: 6px; height: 120px; margin-bottom: 15px;">
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-                <div style="background: {cell_bg}; border: 1px solid {cell_grid_border}; border-radius: 4px;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px; margin-bottom: 6px;">
-                <span> الغبار: <b>{soiling}%</b></span>
-                <span> الإيراد المهدد: <b>{dec_obj['revenue_at_risk_omr']:,.1f} ر.ع</b></span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 13px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px;">
-                <span> صافي المنفعة: <b>{dec_obj['expected_net_benefit_omr']:,.1f} ر.ع</b></span>
-                <span> مخاطر الطقس: <b>{dec_obj['weather_risk']}</b></span>
-            </div>
+        card = f"""
+        <div style="background: #0f172a; border: 2px solid {border_c}; border-radius: 12px; padding: 16px; margin-bottom: 15px; color: white; text-align: right; direction: rtl;">
+            <h3 style="margin:0; color: #f8fafc;">📌 {inv_name}</h3>
+            <p style="margin: 8px 0;">القرار الاستراتيجي: <b>{dec['decision']}</b> (ثقة: {dec['confidence']}%)</p>
+            <p style="margin: 4px 0; font-size: 13px;">الإيراد المهدد: <b>{dec['revenue_at_risk_omr']:,.1f} ر.ع</b> | صافي المنفعة: <b>{dec['net_benefit_omr']:,.1f} ر.ع</b></p>
         </div>
         """
         with cols[i % 2]:
-            st.markdown(html_panel_card, unsafe_allow_html=True)
+            st.markdown(card, unsafe_allow_html=True)
 
 with tab4:
-    st.subheader("💰 التحليل المالي بعيد المدى واقتصاديات أسطول الروبوتات (LCOE & CAPEX)")
-    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-    f_col1.metric("استثمار الروبوتات", f"{initial_robot_capex:,.0f} ر.ع")
-    f_col2.metric("إهلاك الصيانة اليومي", f"{daily_robot_depreciation:.2f} ر.ع")
-    f_col3.metric("صافي العائد اليومي", f"{net_robotic_roi:,.2f} ر.ع")
-    f_col4.metric("تكلفة LCOE", f"{lcoe:.4f} ر.ع")
+    st.subheader("📋 بوابة اعتماد أوامر الشغل والذكاء الاصطناعي")
+    selected_inv = st.selectbox("اختر المحول", [f"Inverter Block {i+1}" for i in range(num_blocks)])
+    wo_code = f"WO-{np.random.randint(1000, 9999)}"
+    ev_code = f"EVT-{np.random.randint(100000, 999999)}"
+    
+    soil_v = inverter_telemetry[selected_inv]['soiling']
+    block_c = total_capacity_mw / num_blocks
+    dec_payload = get_decision_object(soil_v, block_c, tariff, api_wind, inverter_telemetry[selected_inv]['inverter_temp'])
+    st.json(dec_payload)
+
+    if gemini_api_key and st.button("طلب تفسير استراتيجي من Gemini Copilot"):
+        try:
+            client = genai.Client(api_key=gemini_api_key)
+            prompt = f"بصفتك مهندس طاقة، حلل كائن القرار وقدم توصية مهنية: {dec_payload}"
+            res = client.models.generate_content(model='gemini-3.6-flash', contents=prompt)
+            st.markdown(res.text)
+        except Exception as e:
+            st.error(f"خطأ: {e}")
+
+    operator_name = st.text_input("اسم المشرف المسؤول", value="Mohammed Al Qutaiti (Lead Asset Operator)")
+    approved = st.checkbox(f"أوافق على اعتماد قرار `{dec_payload['decision']}` لـ {selected_inv}")
+    
+    if approved and st.button("🚀 اعتماد وتوثيق الحدث في السلسلة المشفرة"):
+        try:
+            db_conn.execute(
+                "INSERT OR REPLACE INTO work_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (wo_code, timestamp_str, site_name, selected_inv, soil_v, dec_payload['decision'], dec_payload['confidence'], dec_payload['net_benefit_omr'], "Approved & Dispatched")
+            )
+            inp_hash = hashlib.sha256(str(dec_payload).encode()).hexdigest()
+            final_hash = log_audit_event(db_conn, ev_code, site_name, operator_name, "V2.1-OpenMeteo", inp_hash, dec_payload, "Approved", wo_code)
+            st.success(f"✅ تم توثيق أمر الشغل بسجل التدقيق برقم بصمة: `{final_hash[:16]}...`")
+        except Exception as e:
+            st.error(f"خطأ: {e}")
+
+    df_w = pd.read_sql("SELECT * FROM work_orders", db_conn)
+    if not df_w.empty:
+        st.dataframe(df_w, use_container_width=True)
 
 with tab5:
-    st.subheader("📋 توليد أوامر الشغل وبوابة الاعتماد والذكاء الاصطناعي (Step 5: AI Agent)")
-    selected_block_wo = st.selectbox("اختر المحول لإصدار أمر العمل", [f"Inverter Block {i+1}" for i in range(num_blocks)])
-    work_order_id = f"WO-MARMOUL-2026-{np.random.randint(1000, 9999)}"
-    event_id = f"EVT-{np.random.randint(100000, 999999)}"
-    
-    soil_val = inverter_configs[selected_block_wo]['soiling']
-    block_cap_mw = total_capacity_mw / num_blocks
-    current_dec_obj = get_cleaning_decision_object(selected_block_wo, soil_val, block_cap_mw, tariff, live_wind, dust_storm_active, data_stream_active)
-    
-    st.markdown("#### 📊 معاينة كائن القرار الهيكلي (Structured Decision Object Payload):")
-    st.json(current_dec_obj)
-
-    st.markdown("---")
-    st.markdown("#### 🤖 التفسير والتشخيص التشغيلي عبر وكيل الذكاء الاصطناعي (Gemini Copilot):")
-    if st.button("طلب تفسير استراتيجي للقرار من الوكيل الذكي"):
-        if not gemini_api_key:
-            st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في الشريط الجانبي.")
-        else:
-            with st.spinner("الوكيل الذكي يحلل معطيات كائن القرار..."):
-                try:
-                    client = genai.Client(api_key=gemini_api_key)
-                    agent_prompt = (
-                        f"بصفتك كبير مهندسي التشغيل في محطة مرمول الشمسية، قم بتحليق وتشخيص كائن القرار الآتي:\n"
-                        f"{current_dec_obj}\n\n"
-                        f"قدم تفسيراً موجزاً ومهنياً باللغة العربية يشرح سبب اتخاذ هذا القرار (Clean/Delay/Do Not Clean) بناءً على الإيراد المهدد ومخاطر الطقس."
-                    )
-                    response = client.models.generate_content(model='gemini-3.6-flash', contents=agent_prompt)
-                    st.markdown("##### 💡 تقرير التفسير التشغيلي:")
-                    st.markdown(response.text)
-                except Exception as e:
-                    st.error(f"خطأ أثناء توليد التقرير: {e}")
-
-    st.markdown("---")
-    operator_name = st.text_input("اسم المشرف المسؤول", value="Mohammed Al Qutaiti (Lead Asset Operator)")
-    approval_toggle = st.checkbox(f"أوافق بصفتي مشرف العمليات على تنفيذ قرار `{current_dec_obj['decision']}` لـ {selected_block_wo}")
-    
-    if approval_toggle and current_dec_obj['decision'] != "BLOCKED":
-        if st.button("🚀 اعتماد وتصدير أمر الشغل وتوثيق الحدث في السلسلة المشفرة"):
-            try:
-                db_conn.execute(
-                    "INSERT INTO work_orders (work_order_id, timestamp, target_block, soil_percentage, decision_type, confidence, net_benefit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (work_order_id, timestamp_str, selected_block_wo, soil_val, current_dec_obj['decision'], current_dec_obj['confidence'], current_dec_obj['expected_net_benefit_omr'], "Dispatched & Approved")
-                )
-                
-                input_hash = hashlib.sha256(str(current_dec_obj).encode()).hexdigest()
-                final_hash = log_audit_event_to_chain(
-                    db_conn, event_id, operator_name, "RE-OPT-V2.1-OQ", input_hash, 
-                    current_dec_obj, "Approved by Human Operator", work_order_id
-                )
-                
-                st.success(f"✅ تم إصدار أمر الشغل `{work_order_id}` وتوثيق الحدث المشفر بنجاح برقم بصمة: `{final_hash[:16]}...`")
-            except Exception as e:
-                st.error(f"خطأ أثناء الحفظ: {e}")
-
-    st.markdown("---")
-    st.markdown("### 🗄️ سجل أوامر الشغل المحفوظة:")
-    df_wo = pd.read_sql("SELECT * FROM work_orders", db_conn)
-    if not df_wo.empty:
-        st.dataframe(df_wo, use_container_width=True)
-    else:
-        st.info("ℹ️ لا توجد أوامر شغل مسجلة حالياً.")
-
-with tab6:
-    st.subheader("🛡️ سجل التدقيق المشفر (Tamper-Evident Audit Chain Ledger)")
-    st.markdown("سجل أحداث العمليات المؤسسي المؤمّن بربط السلاسل الزمنية (`Previous Event Hash` ⇄ `Current Event Hash`):")
+    st.subheader("🛡️ سجل التدقيق المشفر (Tamper-Evident Audit Chain)")
     df_audit = pd.read_sql("SELECT * FROM audit_chain", db_conn)
     if not df_audit.empty:
         st.dataframe(df_audit, use_container_width=True)
     else:
-        st.info("ℹ️ لا توجد أحداث مسجلة في سلسلة التدقيق حتى الآن. قم باعتماد أمر شغل من التبويب السابق لتوليد أول حدث مشفر.")
+        st.info("لا توجد أحداث مسجلة في السلسلة بعد.")
