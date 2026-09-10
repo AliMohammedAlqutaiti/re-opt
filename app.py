@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.2
+# RE-OPT ENTERPRISE V3.3
 # AI Energy Operations + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.2",
+    page_title="RE-OPT Enterprise V3.3",
     page_icon="⚡",
     layout="wide",
 )
@@ -222,7 +222,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.2"
+model_version = "RE-OPT-DigitalTwin-V3.3"
 
 
 # ============================================================
@@ -1127,21 +1127,53 @@ with tab2:
         selected_asset_id
     ]
 
-    st.markdown("### Digital Twin State")
+    st.markdown("### 📋 Digital Twin Asset State Report")
 
-    twin_data = selected_twin.to_dict()
+    # Clean, human-readable structured display replacing raw st.json()
+    info_col1, info_col2, info_col3 = st.columns(3)
+
+    with info_col1:
+        st.markdown(f"""
+        **معلومات الأصل والأداء:**
+        * **الاسم:** {selected_twin.name}
+        * **المعرف:** `{selected_twin.asset_id}`
+        * **مؤشر الصحة:** **{selected_twin.health_score:.1f} / 100**
+        * **القدرة (DC / AC):** {selected_twin.dc_capacity_mw:.2f} / {selected_twin.ac_capacity_mw:.2f} MW
+        * **نسبة الأداء (PR):** {selected_twin.performance_ratio_pct:.1f}%
+        """)
+
+    with info_col2:
+        st.markdown(f"""
+        **البيانات البيئية الميدانية:**
+        * **الإشعاع الشمسي:** {selected_twin.irradiance_w_m2:.0f} W/m²
+        * **درجة حرارة الجو:** {selected_twin.ambient_temp_c:.1f} °C
+        * **حرارة اللوح الفعلية:** {selected_twin.module_temp_c:.1f} °C
+        * **سرعة الرياح:** {selected_twin.wind_speed_m_s:.1f} m/s
+        * **الرطوبة النسبية:** {selected_twin.humidity_pct:.0f}%
+        """)
+
+    with info_col3:
+        st.markdown(f"""
+        **تحليل الفاقد والخسائر:**
+        * **نسبة الغبار (Soiling):** {selected_twin.soiling_pct:.2f}%
+        * **خسارة الغبار:** {selected_twin.soiling_loss_pct:.2f}%
+        * **خسارة الحرارة:** {selected_twin.temperature_loss_pct:.2f}%
+        * **الخسارة الكهربائية:** {selected_twin.electrical_loss_pct:.2f}%
+        """)
+
+    st.markdown("---")
 
     metric_cols = st.columns(4)
 
     with metric_cols[0]:
         st.metric(
-            "Health",
+            "Health Score",
             f"{selected_twin.health_score:.0f}/100"
         )
 
     with metric_cols[1]:
         st.metric(
-            "Soiling",
+            "Soiling Level",
             f"{selected_twin.soiling_pct:.2f}%"
         )
 
@@ -1156,8 +1188,6 @@ with tab2:
             "Actual Power",
             f"{selected_twin.actual_power_mw:.2f} MW"
         )
-
-    st.json(twin_data)
 
     st.markdown("### 🧠 Decision Explanation")
 
