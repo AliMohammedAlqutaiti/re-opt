@@ -17,20 +17,20 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.8
-# AI Energy Operations + Digital Twin + Closed-Loop SCADA
+# RE-OPT ENTERPRISE V3.9
+# Autonomous AI Energy Operations Agent + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.8",
+    page_title="RE-OPT Enterprise V3.9",
     page_icon="⚡",
     layout="wide",
 )
 
-st.title("⚡ RE-OPT Enterprise: AI Energy Operations & Digital Twin")
+st.title("⚡ RE-OPT Enterprise: Autonomous AI Energy Operations Agent")
 st.markdown(
-    "التوأم الرقمي المؤسسي — مراقبة أصول الطاقة، نمذجة الأداء، كشف الخسائر، "
-    "القرار الاقتصادي، وأوامر الصيانة ضمن حلقة تشغيل مغلقة."
+    "التوأم الرقمي المؤسسي مع وكيل الذكاء الاصطناعي المستقل — مراقبة الأصول، "
+    "التحليل الاقتصادي الذكي، اتخاذ القرار التلقائي، وأوامر الصيانة المغلقة."
 )
 
 
@@ -221,11 +221,11 @@ manual_test_soiling = st.sidebar.slider("نسبة اتساخ تجريبية فو
 st.sidebar.subheader("🤖 AI Operations Agent")
 
 gemini_api_key = st.sidebar.text_input(
-    "Gemini API Key (اختياري)",
+    "Gemini API Key",
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.8"
+model_version = "RE-OPT-DigitalTwin-V3.9"
 
 
 # ============================================================
@@ -702,7 +702,6 @@ for asset_id, twin in st.session_state.digital_twins.items():
         api_wind,
     )
 
-# Automatically log baseline history on startup if table is empty
 cursor = db_conn.cursor()
 cursor.execute("SELECT COUNT(*) FROM asset_history")
 if cursor.fetchone()[0] == 0:
@@ -800,76 +799,72 @@ def log_audit_event(
 
 
 # ============================================================
-# AI AGENT
+# AUTONOMOUS AI AGENT (True Agentic JSON Reasoning & Action)
 # ============================================================
 
-def generate_ai_explanation(twin):
-    fallback = (
-        f"{twin.name} ({twin.asset_id}) has modeled soiling of "
-        f"{twin.soiling_pct:.1f}% and a performance ratio of "
-        f"{twin.performance_ratio_pct:.1f}%. "
-        f"The expected recoverable output is "
-        f"{twin.expected_recovery_mw:.2f} MW with an estimated "
-        f"revenue recovery of OMR {twin.revenue_recovery_omr:.1f}/day. "
-        f"The current recommendation is {twin.recommendation} "
-        f"with {twin.confidence:.0f}% confidence."
-    )
+def run_autonomous_ai_agent(twin, cleaning_cost_val):
+    fallback_result = {
+        "recommendation": twin.recommendation,
+        "reason": f"Deterministic engine evaluated soiling at {twin.soiling_pct:.2f}% with net benefit of OMR {twin.net_benefit_omr:.2f}.",
+        "confidence": int(twin.confidence),
+        "expected_recovery_kwh": round(twin.expected_recovery_mw * 5.5 * 1000, 1),
+        "risk": "Low" if twin.wind_speed_m_s < 12 else "High",
+        "action": "Deploy cleaning robot" if twin.recommendation == "CLEAN" else "Hold operations",
+        "work_order_id": f"WO-CLEAN-{np.random.randint(1000, 9999)}" if twin.recommendation == "CLEAN" else "N/A"
+    }
 
     if not gemini_api_key or genai is None:
-        return fallback
+        return fallback_result
 
     try:
         client = genai.Client(api_key=gemini_api_key)
 
         prompt = f"""
-You are RE-OPT AI Energy Operations Agent.
+You are the RE-OPT Autonomous AI Energy Operations Agent.
+Analyze this solar inverter asset and return your response STRICTLY in valid JSON format (no markdown code blocks, just raw JSON).
 
-Analyze this solar asset Digital Twin:
+Asset Data:
+- Asset ID: {twin.asset_id} ({twin.name})
+- Soiling: {twin.soiling_pct:.2f}%
+- Wind Speed: {twin.wind_speed_m_s:.1f} m/s
+- Ambient Temperature: {twin.ambient_temp_c:.1f} C
+- Irradiance: {twin.irradiance_w_m2:.1f} W/m2
+- Power Loss: {(twin.expected_power_mw - twin.actual_power_mw):.2f} MW
+- Cleaning Cost: {cleaning_cost_val} OMR
+- Estimated Revenue Recovery: {twin.revenue_recovery_omr:.2f} OMR/day
+- Net Benefit: {twin.net_benefit_omr:.2f} OMR
 
-Asset: {twin.asset_id}
-Soiling: {twin.soiling_pct:.2f}%
-Irradiance: {twin.irradiance_w_m2:.1f} W/m2
-Ambient temperature: {twin.ambient_temp_c:.1f} C
-Module temperature: {twin.module_temp_c:.1f} C
-Expected power: {twin.expected_power_mw:.2f} MW
-Actual power: {twin.actual_power_mw:.2f} MW
-Performance ratio: {twin.performance_ratio_pct:.2f}%
-Health score: {twin.health_score:.1f}/100
-Expected recovery: {twin.expected_recovery_mw:.2f} MW
-Revenue recovery: {twin.revenue_recovery_omr:.2f} OMR/day
-Net benefit: {twin.net_benefit_omr:.2f} OMR
-Wind speed: {twin.wind_speed_m_s:.1f} m/s
-Rule-based recommendation: {twin.recommendation}
-
-Give a concise engineering explanation in English.
-Do not invent sensor measurements.
-Separate modeled values from observed weather values.
+JSON format required:
+{{
+  "recommendation": "CLEAN" or "DO_NOT_CLEAN" or "DELAY",
+  "reason": "Detailed engineering explanation why...",
+  "confidence": integer between 0 and 100,
+  "expected_recovery_kwh": float value of expected daily kWh recovery,
+  "risk": "Low" or "Medium" or "High",
+  "action": "Deploy cleaning robot" or "Hold operations",
+  "work_order_id": "WO-CLEAN-XXXX" (generate a 4-digit random number suffix if recommendation is CLEAN, else "N/A")
+}}
 """
 
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=prompt,
-            )
-        except Exception:
-            response = client.models.generate_content(
-                model="gemini-3.5-flash",
-                contents=prompt,
-            )
-
-        text = getattr(response, "text", None)
-
-        if text:
-            return text
-
-    except Exception as exc:
-        return (
-            fallback
-            + f"\n\nAI service unavailable; deterministic engine used. "
-            f"Technical note: {str(exc)[:120]}"
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
         )
 
-    return fallback
+        text = getattr(response, "text", "").strip()
+        # Clean markdown code blocks if present
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+
+        parsed = json.loads(text.strip())
+        return parsed
+
+    except Exception:
+        return fallback_result
 
 
 # ============================================================
@@ -911,7 +906,7 @@ with status_cols[3]:
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Live SCADA & Digital Twin",
-    "🤖 AI Decision Engine",
+    "🤖 Autonomous AI Agent",
     "📋 Work Orders",
     "🛡️ Audit Chain",
     "📈 Asset History",
@@ -1084,13 +1079,13 @@ with tab1:
 
 
 # ============================================================
-# TAB 2 — AI DECISION ENGINE
+# TAB 2 — AUTONOMOUS AI AGENT
 # ============================================================
 
 with tab2:
 
     st.subheader(
-        "🤖 AI Energy Operations Agent"
+        "🤖 Autonomous AI Operations Agent Report"
     )
 
     asset_options = {
@@ -1099,7 +1094,7 @@ with tab2:
     }
 
     selected_label = st.selectbox(
-        "اختر الأصل للتحليل",
+        "اختر الأصل للتحليل الذكي",
         list(asset_options.keys())
     )
 
@@ -1108,108 +1103,116 @@ with tab2:
         selected_asset_id
     ]
 
-    st.markdown("### 📋 Digital Twin Asset State Report")
+    st.markdown("### 📋 Asset Telemetry Snapshot")
 
     info_col1, info_col2, info_col3 = st.columns(3)
 
     with info_col1:
         st.markdown(f"""
-        **معلومات الأصل والأداء:**
         * **الاسم:** {selected_twin.name}
         * **المعرف:** `{selected_twin.asset_id}`
         * **مؤشر الصحة:** **{selected_twin.health_score:.1f} / 100**
-        * **القدرة (DC / AC):** {selected_twin.dc_capacity_mw:.2f} / {selected_twin.ac_capacity_mw:.2f} MW
-        * **نسبة الأداء (PR):** {selected_twin.performance_ratio_pct:.1f}%
+        * **نسبة الأداء:** {selected_twin.performance_ratio_pct:.1f}%
         """)
 
     with info_col2:
         st.markdown(f"""
-        **البيانات البيئية الميدانية:**
         * **الإشعاع الشمسي:** {selected_twin.irradiance_w_m2:.0f} W/m²
-        * **درجة حرارة الجو:** {selected_twin.ambient_temp_c:.1f} °C
-        * **حرارة اللوح الفعلية:** {selected_twin.module_temp_c:.1f} °C
+        * **حرارة الجو:** {selected_twin.ambient_temp_c:.1f} °C
         * **سرعة الرياح:** {selected_twin.wind_speed_m_s:.1f} m/s
-        * **الرطوبة النسبية:** {selected_twin.humidity_pct:.0f}%
+        * **نسبة الاتساخ:** {selected_twin.soiling_pct:.2f}%
         """)
 
     with info_col3:
         st.markdown(f"""
-        **تحليل الفاقد والخسائر:**
-        * **نسبة الغبار (Soiling):** {selected_twin.soiling_pct:.2f}%
-        * **خسارة الغبار:** {selected_twin.soiling_loss_pct:.2f}%
-        * **خسارة الحرارة:** {selected_twin.temperature_loss_pct:.2f}%
-        * **الخسارة الكهربائية:** {selected_twin.electrical_loss_pct:.2f}%
+        * **الطاقة المتوقعة:** {selected_twin.expected_power_mw:.2f} MW
+        * **الطاقة الفعلية:** {selected_twin.actual_power_mw:.2f} MW
+        * **العائد المتوقع:** OMR {selected_twin.revenue_recovery_omr:.2f}/day
+        * **صافي الفائدة:** OMR {selected_twin.net_benefit_omr:.2f}
         """)
 
     st.markdown("---")
 
-    metric_cols = st.columns(4)
+    if st.button("🚀 تشغيل وكيل الذكاء الاصطناعي المستقل (Run Agent Analysis)"):
+        with st.spinner("جارِ تحليلات الذكاء الاصطناعي للتوأم الرقمي..."):
+            agent_report = run_autonomous_ai_agent(selected_twin, cleaning_cost)
+            st.session_state[f"agent_report_{selected_asset_id}"] = agent_report
 
-    with metric_cols[0]:
-        st.metric(
-            "Health Score",
-            f"{selected_twin.health_score:.0f}/100"
-        )
+    # Display agent report if available
+    report_key = f"agent_report_{selected_asset_id}"
+    if report_key in st.session_state:
+        rep = st.session_state[report_key]
 
-    with metric_cols[1]:
-        st.metric(
-            "Soiling Level",
-            f"{selected_twin.soiling_pct:.2f}%"
-        )
+        st.markdown("### 🧠 Autonomous Agent Structured Assessment")
 
-    with metric_cols[2]:
-        st.metric(
-            "Expected Power",
-            f"{selected_twin.expected_power_mw:.2f} MW"
-        )
+        col_rep1, col_rep2 = st.columns(2)
+        with col_rep1:
+            st.metric("Recommendation", rep.get("recommendation", "N/A"))
+            st.metric("Confidence", f"{rep.get('confidence', 0)}%")
+            st.write(f"**Operational Risk:** `{rep.get('risk', 'Low')}`")
+        with col_rep2:
+            st.metric("Expected Recovery", f"{rep.get('expected_recovery_kwh', 0)} kWh/day")
+            st.write(f"**Recommended Action:** `{rep.get('action', 'N/A')}`")
+            st.write(f"**Generated Work Order ID:** `{rep.get('work_order_id', 'N/A')}`")
 
-    with metric_cols[3]:
-        st.metric(
-            "Actual Power",
-            f"{selected_twin.actual_power_mw:.2f} MW"
-        )
+        st.info(f"**Agent Reasoning:**\n\n{rep.get('reason', 'No explanation provided.')}")
 
-    st.markdown("### 🧠 Decision Explanation")
+        if rep.get("recommendation") == "CLEAN" and rep.get("work_order_id") != "N/A":
+            if st.button("⚡ تنفيذ أمر العمل وتحديث الأصول تلقائياً (Execute Autonomous Work Order)"):
+                soil_before = selected_twin.soiling_pct
+                power_before = selected_twin.actual_power_mw
+                wo_id = rep.get("work_order_id")
+                event_id = f"EVT-{np.random.randint(100000, 999999)}"
 
-    explanation = generate_ai_explanation(
-        selected_twin
-    )
+                selected_twin.soiling_pct = 0.5
+                update_digital_twin(selected_twin, weather, 0.0, enable_test_mode, manual_test_soiling)
+                evaluate_asset(selected_twin, tariff, cleaning_cost, api_wind)
+                power_after = selected_twin.actual_power_mw
 
-    st.info(explanation)
+                decision_payload = selected_twin.to_dict()
+                input_hash = hashlib.sha256(json.dumps({
+                    "before_soiling": soil_before,
+                    "before_power": power_before,
+                    "decision": decision_payload
+                }, sort_keys=True, default=str).encode()).hexdigest()
 
-    st.markdown("### 💰 Economic Case")
+                db_conn.execute(
+                    """
+                    INSERT OR REPLACE INTO work_orders
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        wo_id,
+                        timestamp_str,
+                        site_name,
+                        selected_twin.asset_id,
+                        soil_before,
+                        "CLEAN",
+                        rep.get("confidence", 94.0),
+                        selected_twin.expected_recovery_mw,
+                        selected_twin.revenue_recovery_omr,
+                        selected_twin.net_benefit_omr,
+                        "Autonomous Agent Executed",
+                    )
+                )
 
-    economics = pd.DataFrame([
-        {
-            "Metric": "Expected recoverable output",
-            "Value": f"{selected_twin.expected_recovery_mw:.2f} MW"
-        },
-        {
-            "Metric": "Estimated revenue recovery",
-            "Value": (
-                f"OMR "
-                f"{selected_twin.revenue_recovery_omr:.2f}/day"
-            )
-        },
-        {
-            "Metric": "Cleaning cost",
-            "Value": f"OMR {cleaning_cost:.2f}"
-        },
-        {
-            "Metric": "Net benefit",
-            "Value": f"OMR {selected_twin.net_benefit_omr:.2f}"
-        },
-        {
-            "Metric": "Recommendation",
-            "Value": selected_twin.recommendation
-        },
-        {
-            "Metric": "Confidence",
-            "Value": f"{selected_twin.confidence:.0f}%"
-        },
-    ])
+                log_audit_event(
+                    db_conn,
+                    event_id,
+                    site_name,
+                    "Autonomous AI Agent",
+                    model_version,
+                    input_hash,
+                    selected_twin,
+                    "Executed Cleaning by Agent",
+                    wo_id,
+                )
 
-    st.table(economics)
+                log_asset_history(db_conn, site_name, selected_twin)
+
+                st.success(f"✅ تم تنفيذ أمر العمل {wo_id} بنجاح وتسجيل العملية في سلسلة التدقيق وسجل الأصول!")
+    else:
+        st.write("اضغط على الزر أعلاه لتشغيل الوكيل الذكي وتحليل الأصل الحتي.")
 
 
 # ============================================================
