@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3
+# RE-OPT ENTERPRISE V3.1
 # AI Energy Operations + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3",
+    page_title="RE-OPT Enterprise V3.1",
     page_icon="⚡",
     layout="wide",
 )
@@ -222,7 +222,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.0"
+model_version = "RE-OPT-DigitalTwin-V3.1"
 
 
 # ============================================================
@@ -246,11 +246,6 @@ timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 class InverterDigitalTwin:
     """
     Digital representation of one inverter block.
-
-    This is intentionally simulation-ready:
-    real SCADA/OPC-UA/Modbus/MQTT telemetry can replace
-    the simulated values later without changing the
-    decision architecture.
     """
 
     def __init__(
@@ -362,13 +357,6 @@ def estimate_module_temperature(
     irradiance_w_m2,
     wind_speed_m_s,
 ):
-    """
-    Lightweight NOCT-style approximation.
-
-    Replace with pvlib temperature models when calibrated
-    plant/module parameters are available.
-    """
-
     irradiance_component = 0.025 * irradiance_w_m2
     wind_cooling = 0.55 * wind_speed_m_s
 
@@ -395,13 +383,6 @@ def calculate_expected_power(
     module_temp_c,
     dc_capacity_mw,
 ):
-    """
-    Simplified PV physics model.
-
-    Expected power represents the theoretical available output
-    before soiling/electrical losses.
-    """
-
     irradiance_factor = np.clip(
         irradiance_w_m2 / 1000.0,
         0.0,
@@ -469,11 +450,6 @@ def calculate_health_score(
     soiling_pct,
     electrical_loss_pct,
 ):
-    """
-    Model health score, not a certified equipment-health metric.
-    It combines performance degradation and modeled losses.
-    """
-
     score = 100.0
 
     performance_penalty = max(
@@ -504,24 +480,13 @@ def update_soiling(
     wind_speed,
     humidity_pct,
 ):
-    """
-    Environmental soiling approximation.
-
-    This is a prototype model. It should later be calibrated
-    against actual Oman field measurements.
-    """
-
     accumulation = base_accumulation
 
-    # Moderate/high wind can increase airborne dust loading.
     if 8.0 <= wind_speed < 18.0:
         accumulation *= 1.20
-
-    # Very high wind can reduce net deposited dust.
     elif wind_speed >= 18.0:
         accumulation *= 0.55
 
-    # Humidity can increase particle adhesion.
     if humidity_pct >= 60.0:
         accumulation *= 1.15
 
@@ -543,13 +508,11 @@ def update_digital_twin(
     weather,
     dust_speed,
 ):
-    # 1. Environmental state
     twin.irradiance_w_m2 = weather["irradiance"]
     twin.ambient_temp_c = weather["temperature"]
     twin.wind_speed_m_s = weather["wind_speed"]
     twin.humidity_pct = weather["humidity"]
 
-    # 2. Soiling state
     twin.soiling_pct = update_soiling(
         twin.soiling_pct,
         dust_speed,
@@ -557,44 +520,35 @@ def update_digital_twin(
         twin.humidity_pct,
     )
 
-    # 3. Thermal state
     twin.module_temp_c = estimate_module_temperature(
         twin.ambient_temp_c,
         twin.irradiance_w_m2,
         twin.wind_speed_m_s,
     )
 
-    # 4. Loss model
     twin.soiling_loss_pct = twin.soiling_pct
     twin.temperature_loss_pct = calculate_temperature_loss(
         twin.module_temp_c
     )
-
-    # Small modeled electrical loss.
-    # Later this should come from inverter telemetry.
     twin.electrical_loss_pct = 1.3
 
-    # 5. Physics expected output
     twin.expected_power_mw = calculate_expected_power(
         twin.irradiance_w_m2,
         twin.module_temp_c,
         twin.dc_capacity_mw,
     )
 
-    # 6. Actual modeled output
     twin.actual_power_mw = calculate_actual_power(
         twin.expected_power_mw,
         twin.soiling_pct,
         twin.electrical_loss_pct,
     )
 
-    # 7. Performance
     twin.performance_ratio_pct = calculate_performance_ratio(
         twin.actual_power_mw,
         twin.expected_power_mw,
     )
 
-    # 8. Asset condition
     twin.health_score = calculate_health_score(
         twin.performance_ratio_pct,
         twin.soiling_pct,
@@ -614,14 +568,6 @@ def evaluate_asset(
     cleaning_cost_value,
     wind_speed,
 ):
-    """
-    Economic intervention logic.
-
-    The core principle:
-    intervene when the expected recoverable value
-    justifies the intervention cost and safety conditions.
-    """
-
     recoverable_mw = max(
         0.0,
         twin.expected_power_mw - twin.actual_power_mw
@@ -649,13 +595,10 @@ def evaluate_asset(
 
     reasons = []
 
-    # Safety lock
     if wind_speed > 16.0:
         decision = "DELAY (Safety Lock)"
         confidence = 95.0
         reasons.append("HIGH_WIND_SAFETY_LOCK")
-
-    # Economic cleaning decision
     elif (
         net_benefit > 35.0
         and twin.soiling_pct > 8.0
@@ -667,7 +610,6 @@ def evaluate_asset(
             "POSITIVE_NET_BENEFIT",
             "SUITABLE_WIND"
         ])
-
     elif (
         net_benefit > 0.0
         and twin.soiling_pct > 4.0
@@ -678,7 +620,6 @@ def evaluate_asset(
             "MODERATE_SOILING",
             "WAIT_FOR_BETTER_ECONOMIC_WINDOW"
         ])
-
     else:
         decision = "DO_NOT_CLEAN"
         confidence = 99.0
@@ -846,11 +787,6 @@ def log_asset_history(conn, site, twin):
 # ============================================================
 
 def generate_ai_explanation(twin):
-    """
-    Uses Gemini only if the user provides an API key.
-    Otherwise returns a deterministic engineering explanation.
-    """
-
     fallback = (
         f"{twin.name} ({twin.asset_id}) has modeled soiling of "
         f"{twin.soiling_pct:.1f}% and a performance ratio of "
@@ -894,7 +830,7 @@ Separate modeled values from observed weather values.
 """
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=prompt,
         )
 
@@ -979,7 +915,6 @@ with tab1:
         st.session_state.digital_twins.values()
     )
 
-    # Summary
     total_expected = sum(
         t.expected_power_mw for t in twin_list
     )
@@ -1025,7 +960,6 @@ with tab1:
 
     st.markdown("---")
 
-    # Asset cards
     card_cols = st.columns(min(num_blocks, 3))
 
     for i, twin in enumerate(twin_list):
@@ -1087,7 +1021,6 @@ with tab1:
                 unsafe_allow_html=True,
             )
 
-    # Detailed table
     st.markdown("### 📡 Live Asset Telemetry")
 
     rows = []
@@ -1129,7 +1062,6 @@ with tab1:
         hide_index=True,
     )
 
-    # Loss breakdown
     st.markdown("### 📉 Loss Decomposition")
 
     loss_rows = []
@@ -1327,12 +1259,8 @@ with tab3:
             f"EVT-{np.random.randint(100000, 999999)}"
         )
 
-        # Closed-loop intervention:
-        # cleaning returns the modeled surface condition
-        # to a clean-but-not-perfect state.
         twin_wo.soiling_pct = 0.5
 
-        # Recalculate the asset after cleaning
         update_digital_twin(
             twin_wo,
             weather,
