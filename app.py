@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.5
+# RE-OPT ENTERPRISE V3.6
 # AI Energy Operations + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.5",
+    page_title="RE-OPT Enterprise V3.6",
     page_icon="⚡",
     layout="wide",
 )
@@ -225,7 +225,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.5"
+model_version = "RE-OPT-DigitalTwin-V3.6"
 
 
 # ============================================================
@@ -978,7 +978,6 @@ with tab1:
 
     card_cols = st.columns(min(num_blocks, 3))
 
-    # Clean native Streamlit UI components replacing raw HTML string templates
     for i, twin in enumerate(twin_list):
 
         with card_cols[i % len(card_cols)]:
@@ -1207,7 +1206,7 @@ with tab2:
 
 
 # ============================================================
-# TAB 3 — WORK ORDERS / CLOSED LOOP
+# TAB 3 — WORK ORDERS / CLOSED LOOP (Fixed with st.form)
 # ============================================================
 
 with tab3:
@@ -1242,137 +1241,138 @@ with tab3:
         """
     )
 
-    operator_name = st.text_input(
-        "اسم المشرف المسؤول",
-        value="Lead Asset Operator"
-    )
-
-    approve_cleaning = st.checkbox(
-        f"تأكيد إطلاق دورة التنظيف لـ {twin_wo.asset_id}"
-    )
-
-    if (
-        approve_cleaning
-        and st.button(
-            "🚀 إنشاء Work Order وتنفيذ التنظيف"
-        )
-    ):
-
-        soil_before = twin_wo.soiling_pct
-        power_before = twin_wo.actual_power_mw
-
-        work_order_id = (
-            f"WO-CLEAN-{np.random.randint(1000, 9999)}"
+    # Using st.form to guarantee stable interaction and execution state
+    with st.form(key="cleaning_work_order_form"):
+        operator_name = st.text_input(
+            "اسم المشرف المسؤول",
+            value="Lead Asset Operator"
         )
 
-        event_id = (
-            f"EVT-{np.random.randint(100000, 999999)}"
+        approve_cleaning = st.checkbox(
+            f"تأكيد إطلاق دورة التنظيف لـ {twin_wo.asset_id}"
         )
 
-        twin_wo.soiling_pct = 0.5
+        submit_work_order = st.form_submit_button("🚀 إنشاء Work Order وتنفيذ التنظيف")
 
-        update_digital_twin(
-            twin_wo,
-            weather,
-            0.0,
-            enable_test_mode,
-            manual_test_soiling,
-        )
+    if submit_work_order:
+        if not approve_cleaning:
+            st.warning("⚠️ يجب تحديد مربع التأكيد أولاً للمتابعة وإرسال أمر الشغل.")
+        else:
+            soil_before = twin_wo.soiling_pct
+            power_before = twin_wo.actual_power_mw
 
-        evaluate_asset(
-            twin_wo,
-            tariff,
-            cleaning_cost,
-            api_wind,
-        )
+            work_order_id = (
+                f"WO-CLEAN-{np.random.randint(1000, 9999)}"
+            )
 
-        power_after = twin_wo.actual_power_mw
+            event_id = (
+                f"EVT-{np.random.randint(100000, 999999)}"
+            )
 
-        recovery_actual = (
-            power_after - power_before
-        )
+            twin_wo.soiling_pct = 0.5
 
-        decision_payload = twin_wo.to_dict()
+            update_digital_twin(
+                twin_wo,
+                weather,
+                0.0,
+                enable_test_mode,
+                manual_test_soiling,
+            )
 
-        input_hash = hashlib.sha256(
-            json.dumps(
-                {
-                    "before_soiling": soil_before,
-                    "before_power": power_before,
-                    "decision": decision_payload,
-                },
-                sort_keys=True,
-                default=str,
-            ).encode()
-        ).hexdigest()
+            evaluate_asset(
+                twin_wo,
+                tariff,
+                cleaning_cost,
+                api_wind,
+            )
 
-        try:
+            power_after = twin_wo.actual_power_mw
 
-            db_conn.execute(
-                """
-                INSERT OR REPLACE INTO work_orders
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    work_order_id,
-                    timestamp_str,
-                    site_name,
-                    twin_wo.asset_id,
-                    soil_before,
-                    "CLEAN",
-                    twin_wo.confidence,
-                    twin_wo.expected_recovery_mw,
-                    twin_wo.revenue_recovery_omr,
-                    twin_wo.net_benefit_omr,
-                    "Executed & Verified",
+            recovery_actual = (
+                power_after - power_before
+            )
+
+            decision_payload = twin_wo.to_dict()
+
+            input_hash = hashlib.sha256(
+                json.dumps(
+                    {
+                        "before_soiling": soil_before,
+                        "before_power": power_before,
+                        "decision": decision_payload,
+                    },
+                    sort_keys=True,
+                    default=str,
+                ).encode()
+            ).hexdigest()
+
+            try:
+
+                db_conn.execute(
+                    """
+                    INSERT OR REPLACE INTO work_orders
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        work_order_id,
+                        timestamp_str,
+                        site_name,
+                        twin_wo.asset_id,
+                        soil_before,
+                        "CLEAN",
+                        twin_wo.confidence,
+                        twin_wo.expected_recovery_mw,
+                        twin_wo.revenue_recovery_omr,
+                        twin_wo.net_benefit_omr,
+                        "Executed & Verified",
+                    )
                 )
-            )
 
-            final_hash = log_audit_event(
-                db_conn,
-                event_id,
-                site_name,
-                operator_name,
-                model_version,
-                input_hash,
-                twin_wo,
-                "Executed Cleaning",
-                work_order_id,
-            )
+                final_hash = log_audit_event(
+                    db_conn,
+                    event_id,
+                    site_name,
+                    operator_name,
+                    model_version,
+                    input_hash,
+                    twin_wo,
+                    "Executed Cleaning",
+                    work_order_id,
+                )
 
-            log_asset_history(
-                db_conn,
-                site_name,
-                twin_wo,
-            )
+                log_asset_history(
+                    db_conn,
+                    site_name,
+                    twin_wo,
+                )
 
-            st.success(
-                f"""
-                ✅ Cleaning completed.
+                st.success(
+                    f"""
+                    ✅ Cleaning completed.
 
-                Asset: {twin_wo.asset_id}
+                    Asset: {twin_wo.asset_id}
 
-                Soiling:
-                {soil_before:.2f}% → {twin_wo.soiling_pct:.2f}%
+                    Soiling:
+                    {soil_before:.2f}% → {twin_wo.soiling_pct:.2f}%
 
-                Modeled power:
-                {power_before:.2f} MW → {power_after:.2f} MW
+                    Modeled power:
+                    {power_before:.2f} MW → {power_after:.2f} MW
 
-                Post-cleaning recovery:
-                +{recovery_actual:.2f} MW
+                    Post-cleaning recovery:
+                    +{recovery_actual:.2f} MW
 
-                Work Order:
-                {work_order_id}
+                    Work Order:
+                    {work_order_id}
 
-                Audit hash:
-                {final_hash[:16]}...
-                """
-            )
+                    Audit hash:
+                    {final_hash[:16]}...
+                    """
+                )
 
-        except Exception as exc:
-            st.error(
-                f"Work Order error: {exc}"
-            )
+            except Exception as exc:
+                st.error(
+                    f"Work Order error: {exc}"
+                )
 
     df_work_orders = pd.read_sql(
         """
