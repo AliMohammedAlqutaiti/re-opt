@@ -17,12 +17,12 @@ except Exception:
 
 
 # ============================================================
-# RE-OPT ENTERPRISE V3.9
+# RE-OPT ENTERPRISE V3.11
 # Autonomous AI Energy Operations Agent + Digital Twin + Closed-Loop SCADA
 # ============================================================
 
 st.set_page_config(
-    page_title="RE-OPT Enterprise V3.9",
+    page_title="RE-OPT Enterprise V3.11",
     page_icon="⚡",
     layout="wide",
 )
@@ -199,7 +199,7 @@ tariff = st.sidebar.number_input(
 
 cleaning_cost = st.sidebar.number_input(
     "تكلفة دورة التنظيف (ر.ع)",
-    value=45.0,
+    value=20.0,
     min_value=0.0,
     step=5.0
 )
@@ -225,7 +225,7 @@ gemini_api_key = st.sidebar.text_input(
     type="password"
 )
 
-model_version = "RE-OPT-DigitalTwin-V3.9"
+model_version = "RE-OPT-DigitalTwin-V3.11"
 
 
 # ============================================================
@@ -608,8 +608,8 @@ def evaluate_asset(
         confidence = 95.0
         reasons.append("HIGH_WIND_SAFETY_LOCK")
     elif (
-        net_benefit > 35.0
-        and twin.soiling_pct > 8.0
+        net_benefit > 15.0
+        and twin.soiling_pct > 6.0
     ):
         decision = "CLEAN"
         confidence = 94.0
@@ -619,8 +619,8 @@ def evaluate_asset(
             "SUITABLE_WIND"
         ])
     elif (
-        net_benefit > 0.0
-        and twin.soiling_pct > 4.0
+        net_benefit > -5.0
+        and twin.soiling_pct > 3.0
     ):
         decision = "DELAY"
         confidence = 78.0
@@ -799,7 +799,7 @@ def log_audit_event(
 
 
 # ============================================================
-# AUTONOMOUS AI AGENT (True Agentic JSON Reasoning & Action)
+# AUTONOMOUS AI AGENT (Structured Template Output)
 # ============================================================
 
 def run_autonomous_ai_agent(twin, cleaning_cost_val):
@@ -825,9 +825,12 @@ Analyze this solar inverter asset and return your response STRICTLY in valid JSO
 
 Asset Data:
 - Asset ID: {twin.asset_id} ({twin.name})
+- DC Capacity: {twin.dc_capacity_mw:.1f} MW
+- AC Capacity: {twin.ac_capacity_mw:.1f} MW
 - Soiling: {twin.soiling_pct:.2f}%
 - Wind Speed: {twin.wind_speed_m_s:.1f} m/s
 - Ambient Temperature: {twin.ambient_temp_c:.1f} C
+- Module Temperature: {twin.module_temp_c:.1f} C
 - Irradiance: {twin.irradiance_w_m2:.1f} W/m2
 - Power Loss: {(twin.expected_power_mw - twin.actual_power_mw):.2f} MW
 - Cleaning Cost: {cleaning_cost_val} OMR
@@ -852,7 +855,6 @@ JSON format required:
         )
 
         text = getattr(response, "text", "").strip()
-        # Clean markdown code blocks if present
         if text.startswith("```json"):
             text = text[7:]
         if text.startswith("```"):
@@ -1079,7 +1081,7 @@ with tab1:
 
 
 # ============================================================
-# TAB 2 — AUTONOMOUS AI AGENT
+# TAB 2 — AUTONOMOUS AI AGENT (Template-Aligned Output)
 # ============================================================
 
 with tab2:
@@ -1103,59 +1105,55 @@ with tab2:
         selected_asset_id
     ]
 
-    st.markdown("### 📋 Asset Telemetry Snapshot")
-
-    info_col1, info_col2, info_col3 = st.columns(3)
-
-    with info_col1:
-        st.markdown(f"""
-        * **الاسم:** {selected_twin.name}
-        * **المعرف:** `{selected_twin.asset_id}`
-        * **مؤشر الصحة:** **{selected_twin.health_score:.1f} / 100**
-        * **نسبة الأداء:** {selected_twin.performance_ratio_pct:.1f}%
-        """)
-
-    with info_col2:
-        st.markdown(f"""
-        * **الإشعاع الشمسي:** {selected_twin.irradiance_w_m2:.0f} W/m²
-        * **حرارة الجو:** {selected_twin.ambient_temp_c:.1f} °C
-        * **سرعة الرياح:** {selected_twin.wind_speed_m_s:.1f} m/s
-        * **نسبة الاتساخ:** {selected_twin.soiling_pct:.2f}%
-        """)
-
-    with info_col3:
-        st.markdown(f"""
-        * **الطاقة المتوقعة:** {selected_twin.expected_power_mw:.2f} MW
-        * **الطاقة الفعلية:** {selected_twin.actual_power_mw:.2f} MW
-        * **العائد المتوقع:** OMR {selected_twin.revenue_recovery_omr:.2f}/day
-        * **صافي الفائدة:** OMR {selected_twin.net_benefit_omr:.2f}
-        """)
-
-    st.markdown("---")
-
     if st.button("🚀 تشغيل وكيل الذكاء الاصطناعي المستقل (Run Agent Analysis)"):
         with st.spinner("جارِ تحليلات الذكاء الاصطناعي للتوأم الرقمي..."):
             agent_report = run_autonomous_ai_agent(selected_twin, cleaning_cost)
             st.session_state[f"agent_report_{selected_asset_id}"] = agent_report
 
-    # Display agent report if available
     report_key = f"agent_report_{selected_asset_id}"
     if report_key in st.session_state:
         rep = st.session_state[report_key]
 
-        st.markdown("### 🧠 Autonomous Agent Structured Assessment")
+        st.markdown("---")
+        st.markdown(f"### ⚡ Asset Operational Report: {selected_twin.asset_id}")
 
-        col_rep1, col_rep2 = st.columns(2)
-        with col_rep1:
-            st.metric("Recommendation", rep.get("recommendation", "N/A"))
-            st.metric("Confidence", f"{rep.get('confidence', 0)}%")
-            st.write(f"**Operational Risk:** `{rep.get('risk', 'Low')}`")
-        with col_rep2:
-            st.metric("Expected Recovery", f"{rep.get('expected_recovery_kwh', 0)} kWh/day")
-            st.write(f"**Recommended Action:** `{rep.get('action', 'N/A')}`")
-            st.write(f"**Generated Work Order ID:** `{rep.get('work_order_id', 'N/A')}`")
+        # Structured Template Layout matching user requirements
+        col_t1, col_t2 = st.columns(2)
 
-        st.info(f"**Agent Reasoning:**\n\n{rep.get('reason', 'No explanation provided.')}")
+        with col_t1:
+            st.markdown(f"""
+            **Asset & Capacity Overview**
+            * **Asset ID:** `{selected_twin.asset_id}`
+            * **DC Capacity:** {selected_twin.dc_capacity_mw:.1f} MW
+            * **AC Capacity:** {selected_twin.ac_capacity_mw:.1f} MW
+            * **Health Score:** **{selected_twin.health_score:.0f} / 100**
+
+            **Environmental Telemetry & Performance**
+            * **Solar Irradiance:** {selected_twin.irradiance_w_m2:.1f} W/m²
+            * **Module Temperature:** {selected_twin.module_temp_c:.1f} °C (Ambient: {selected_twin.ambient_temp_c:.1f} °C)
+            * **Expected Power:** {selected_twin.expected_power_mw:.2f} MW
+            * **Actual Power:** {selected_twin.actual_power_mw:.2f} MW
+            * **Performance Ratio:** {selected_twin.performance_ratio_pct:.1f}%
+            """)
+
+        with col_t2:
+            st.markdown(f"""
+            **Loss Breakdown**
+            * **Estimated Soiling:** {selected_twin.soiling_pct:.2f}%
+            * **Temperature Loss:** {selected_twin.temperature_loss_pct:.2f}%
+            * **Electrical Loss:** {selected_twin.electrical_loss_pct:.2f}%
+
+            **Decision & Financial Recovery**
+            * **Cleaning Recommendation:** `{rep.get('recommendation', 'N/A')}`
+            * **Confidence Level:** {rep.get('confidence', 0)}%
+            * **Operational Risk:** `{rep.get('risk', 'Low')}`
+            * **Expected Recovery:** {rep.get('expected_recovery_kwh', 0)} kWh/day
+            * **Estimated Revenue Recovery:** **OMR {selected_twin.revenue_recovery_omr:.2f} / day**
+            * **Recommended Action:** `{rep.get('action', 'N/A')}`
+            * **Generated Work Order ID:** `{rep.get('work_order_id', 'N/A')}`
+            """)
+
+        st.info(f"**Agent Engineering Reasoning:**\n\n{rep.get('reason', 'No explanation provided.')}")
 
         if rep.get("recommendation") == "CLEAN" and rep.get("work_order_id") != "N/A":
             if st.button("⚡ تنفيذ أمر العمل وتحديث الأصول تلقائياً (Execute Autonomous Work Order)"):
@@ -1212,7 +1210,7 @@ with tab2:
 
                 st.success(f"✅ تم تنفيذ أمر العمل {wo_id} بنجاح وتسجيل العملية في سلسلة التدقيق وسجل الأصول!")
     else:
-        st.write("اضغط على الزر أعلاه لتشغيل الوكيل الذكي وتحليل الأصل الحتي.")
+        st.write("اضغط على الزر أعلاه لتشغيل الوكيل الذكي وعرض التقرير الهيكلي.")
 
 
 # ============================================================
