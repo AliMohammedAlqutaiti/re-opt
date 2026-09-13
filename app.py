@@ -259,6 +259,25 @@ class InverterDigitalTwin:
         self.net_benefit_omr = 0.0
         self.reason_codes = []
 
+    def to_dict(self):
+        return {
+            "asset_id": self.asset_id,
+            "name": self.name,
+            "dc_capacity_mw": self.dc_capacity_mw,
+            "ac_capacity_mw": self.ac_capacity_mw,
+            "soiling_pct": self.soiling_pct,
+            "irradiance_w_m2": self.irradiance_w_m2,
+            "ambient_temp_c": self.ambient_temp_c,
+            "module_temp_c": self.module_temp_c,
+            "expected_power_mw": self.expected_power_mw,
+            "actual_power_mw": self.actual_power_mw,
+            "performance_ratio_pct": self.performance_ratio_pct,
+            "health_score": self.health_score,
+            "recommendation": self.recommendation,
+            "confidence": self.confidence,
+            "net_benefit_omr": self.net_benefit_omr,
+        }
+
 
 # ============================================================
 # SIDEBAR CONTROLS & PARAMS
@@ -592,4 +611,164 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 ])
 
 # ------------------------------------------------------------
-# TAB
+# TAB 1: SCADA & INVERTER DIGITAL TWIN
+# ------------------------------------------------------------
+with tab1:
+    st.subheader("🟢 غرفة عمليات SCADA — Inverter Block Digital Twin")
+    twin_list = list(st.session_state.digital_twins.values())
+    total_expected = sum(t.expected_power_mw for t in twin_list)
+    total_actual = sum(t.actual_power_mw for t in twin_list)
+    action_required_count = sum(t.recommendation != "OPTIMAL_OPERATIONS" for t in twin_list)
+
+    m_cols = st.columns(4)
+    with m_cols[0]:
+        st.metric("Modeled Generation", f"{total_actual:.2f} MW")
+    with m_cols[1]:
+        st.metric("Expected Capacity", f"{total_expected:.2f} MW")
+    with m_cols[2]:
+        st.metric("Anomalies Flagged", str(action_required_count))
+    with m_cols[3]:
+        st.metric("Grid Limit Status", "NORMAL (500 MW Limit)")
+
+    st.markdown("---")
+    card_cols = st.columns(min(num_blocks, 3))
+    for i, twin in enumerate(twin_list):
+        with card_cols[i % len(card_cols)]:
+            with st.container(border=True):
+                st.markdown(f"#### {twin.name} (`{twin.asset_id}`)")
+                st.write(generate_inverter_svg(twin), unsafe_allow_html=True)
+                st.divider()
+                st.write(f"**Soiling Level:** {twin.soiling_pct:.2f}% (Swept Nightly)")
+                st.write(f"**Actual Output:** {twin.actual_power_mw:.2f} MW / {twin.expected_power_mw:.2f} MW")
+                st.write(f"**Performance Ratio:** {twin.performance_ratio_pct:.1f}%")
+
+# ------------------------------------------------------------
+# TAB 2: TRACKER SCADA LAYER
+# ------------------------------------------------------------
+with tab2:
+    st.subheader("🎯 واجهة التحكم بالمتبعات — Tracker SCADA Dedicated Layer")
+    st.caption("مراقبة حالة المتبعات التشغيلية بشكل مستقل ومتابعة الاستجابة التلقائية لحظر الرياح وانحرافات الزوايا.")
+
+    tracker_rows = []
+    for twin in st.session_state.digital_twins.values():
+        for trk in twin.trackers:
+            tracker_rows.append({
+                "Tracker ID": trk.tracker_id,
+                "Block ID": trk.block_id,
+                "Actual Angle (°)": round(trk.actual_angle_deg, 1),
+                "Target Angle (°)": round(trk.target_angle_deg, 1),
+                "Deviation (°)": round(trk.position_deviation_deg, 1),
+                "Mode": trk.operating_mode,
+                "Wind-Stow Active": "YES 🚨" if trk.wind_stow_active else "NO",
+                "Motor Status": trk.motor_status,
+                "Comm Status": trk.comm_status,
+                "Health Score": trk.health_score,
+            })
+
+    st.dataframe(pd.DataFrame(tracker_rows), use_container_width=True, hide_index=True)
+
+# ------------------------------------------------------------
+# TAB 3: SINGLE-LINE DIAGRAM (SLD)
+# ------------------------------------------------------------
+with tab3:
+    st.subheader("⚡ المخطط الأحادي للكهرباء — Utility Plant Single-Line Diagram (SLD)")
+    st.caption("توصيل الطاقة الكهربائية من الألواح عبر العواكس والمحولات وصولاً إلى شبكة NAMA بقدرة تصدير 500 ميجاواط.")
+    render_plant_sld()
+
+# ------------------------------------------------------------
+# TAB 4: AUTONOMOUS AI AGENT
+# ------------------------------------------------------------
+with tab4:
+    st.subheader("🤖 Executive SCADA Summary & AI Agent — Ready for Submission")
+    asset_options = {f"{t.name} — {t.asset_id}": t.asset_id for t in st.session_state.digital_twins.values()}
+    selected_label = st.selectbox("اختر الأصل للتحليل الذكي وتوليد التقرير", list(asset_options.keys()))
+    selected_twin = st.session_state.digital_twins[asset_options[selected_label]]
+
+    if st.button("🚀 توليد التقرير التنفيذي لـ SCADA (Generate Human-Friendly Report)"):
+        with st.spinner("جارِ تحليل البيانات الميدانية واستخراج الأعطال..."):
+            rep = run_autonomous_ai_agent(selected_twin, cleaning_cost)
+            st.session_state[f"agent_rep_{selected_twin.asset_id}"] = rep
+
+    rep_key = f"agent_rep_{selected_twin.asset_id}"
+    if rep_key in st.session_state:
+        rep = st.session_state[rep_key]
+        st.markdown(f"### 📄 Executive Briefing: Asset `{selected_twin.asset_id}`")
+        
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.markdown(f"""
+            **Asset & Status**
+            * **Asset ID:** `{selected_twin.asset_id}`
+            * **Capacity:** {selected_twin.dc_capacity_mw:.1f} MW DC / {selected_twin.ac_capacity_mw:.1f} MW AC
+            * **Performance Ratio:** **{selected_twin.performance_ratio_pct:.1f}%**
+            * **Health Score:** **{selected_twin.health_score:.0f} / 100**
+            """)
+        with col_t2:
+            st.markdown(f"""
+            **Financial & Action**
+            * **Recommendation:** `{rep.get('recommendation')}`
+            * **Daily Revenue Risk:** OMR {rep.get('financial_loss_omr', 0.0):.2f}
+            * **Action Item:** `{rep.get('action')}`
+            * **Work Order:** `{rep.get('work_order_id')}`
+            """)
+        
+        st.info(f"**Executive Verdict:** {rep.get('verdict')}")
+        st.warning(f"**Detailed Breakdown:** {rep.get('reason')}")
+        
+        st.markdown("**Diagnosed Field Anomalies:**")
+        for anom in rep.get("anomalies", []):
+            st.write(f"- ⚠️ {anom}")
+
+        if st.button("🔒 تسجيل القرار في سلسلة التدقيق (Commit to Audit Chain)"):
+            input_hash = hashlib.sha256(json.dumps(selected_twin.to_dict()).encode()).hexdigest()
+            current_hash = log_audit_event(
+                db_conn,
+                f"EVT-{np.random.randint(10000,99999)}",
+                site_name,
+                "SCADA_OPERATOR",
+                model_version,
+                input_hash,
+                selected_twin,
+                "APPROVED",
+                rep.get('work_order_id', 'WO-N/A')
+            )
+            st.success(f"تم حصر الحدث بنجاح وتشفيره بالسلسلة! (SHA-256 Hash: {current_hash[:20]}...)")
+
+# ------------------------------------------------------------
+# TAB 5: WORK ORDERS & AUDIT CHAIN
+# ------------------------------------------------------------
+with tab5:
+    st.subheader("📋 Closed-Loop Work Orders & Audit Chain Ledger")
+    st.caption("سجل التدقيق المشفر (Tamper-Evident Ledger) لجميع القرارات التشغيلية الصادرة من التوأم الرقمي.")
+    df_audit = pd.read_sql("SELECT * FROM audit_chain ORDER BY ROWID DESC", db_conn)
+    if not df_audit.empty:
+        st.dataframe(df_audit, use_container_width=True, hide_index=True)
+    else:
+        st.info("لا توجد أحداث مسجلة في سلسلة التدقيق حتى الآن. قم بتوليد تقرير واعتماده لتسجيله.")
+
+# ------------------------------------------------------------
+# TAB 6: PERFORMANCE ANALYTICS
+# ------------------------------------------------------------
+with tab6:
+    st.subheader("📈 التحليلات المتقدمة والتتبع التاريخي للأصول")
+    st.caption("متابعة تغير مؤشر الأداء (PR) ونسبة الاتساخ وحالات المتبعات عبر الوقت.")
+    
+    analytics_rows = []
+    for twin in st.session_state.digital_twins.values():
+        analytics_rows.append({
+            "Asset ID": twin.asset_id,
+            "Name": twin.name,
+            "Expected (MW)": round(twin.expected_power_mw, 2),
+            "Actual Output (MW)": round(twin.actual_power_mw, 2),
+            "Loss Deficit (MW)": round(twin.expected_recovery_mw, 2),
+            "Performance Ratio (%)": round(twin.performance_ratio_pct, 1),
+            "Health Score": round(twin.health_score, 0),
+            "Status": twin.recommendation,
+        })
+    st.dataframe(pd.DataFrame(analytics_rows), use_container_width=True, hide_index=True)
+
+# ============================================================
+# FOOTER
+# ============================================================
+st.markdown("---")
+st.caption(f"RE-OPT Enterprise {model_version} | Site: {site_name} | Timestamp: {timestamp_str}")
